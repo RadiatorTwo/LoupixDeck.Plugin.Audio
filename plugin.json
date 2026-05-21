@@ -1,0 +1,8 @@
+{
+  "id": "audio",
+  "name": "Windows Audio",
+  "version": "1.0.0",
+  "sdkVersion": "1.2",
+  "entryAssembly": "LoupixDeck.Plugin.Audio.dll",
+  "platform": "Windows"
+}
