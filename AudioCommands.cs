@@ -6,7 +6,7 @@ namespace LoupixDeck.Plugin.Audio;
 /// Opens the audio output-device folder. Command name kept identical to the
 /// former built-in command.
 /// </summary>
-internal sealed class AudioOutputFolderCommand(IWindowsAudioService audio) : IPluginCommand
+internal sealed class AudioOutputFolderCommand(IAudioService audio, AudioAliasStore aliasStore) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -19,13 +19,13 @@ internal sealed class AudioOutputFolderCommand(IWindowsAudioService audio) : IPl
 
     public Task Execute(CommandContext ctx)
     {
-        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Render));
+        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Render, aliasStore));
         return Task.CompletedTask;
     }
 }
 
 /// <summary>Opens the audio input-device folder.</summary>
-internal sealed class AudioInputFolderCommand(IWindowsAudioService audio) : IPluginCommand
+internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasStore aliasStore) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -38,7 +38,7 @@ internal sealed class AudioInputFolderCommand(IWindowsAudioService audio) : IPlu
 
     public Task Execute(CommandContext ctx)
     {
-        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Capture));
+        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Capture, aliasStore));
         return Task.CompletedTask;
     }
 }

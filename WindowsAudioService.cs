@@ -3,8 +3,8 @@ using NAudio.CoreAudioApi.Interfaces;
 
 namespace LoupixDeck.Plugin.Audio;
 
-/// <summary>Windows Core Audio implementation (the plugin only loads on Windows).</summary>
-public sealed class WindowsAudioService : IWindowsAudioService
+/// <summary>Windows Core Audio implementation, used when the plugin runs on Windows.</summary>
+public sealed class WindowsAudioService : IAudioService
 {
     public bool IsSupported => true;
 

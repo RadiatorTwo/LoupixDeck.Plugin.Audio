@@ -4,7 +4,7 @@ public enum AudioEndpointKind { Render, Capture }
 
 public sealed record AudioEndpointInfo(string Id, string FriendlyName, bool IsDefault);
 
-public interface IWindowsAudioService
+public interface IAudioService
 {
     bool IsSupported { get; }
 

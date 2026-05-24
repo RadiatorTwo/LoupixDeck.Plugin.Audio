@@ -10,8 +10,9 @@ public sealed class AudioDeviceControlFolderProvider : FolderProviderBase
 {
     private const float StepScalar = 0.02f;
 
-    private readonly IWindowsAudioService _audio;
+    private readonly IAudioService _audio;
     private readonly AudioEndpointInfo _endpoint;
+    private readonly AudioAliasStore _aliasStore;
 
     private IDisposable? _subscription;
     private float _currentVolume;
@@ -19,10 +20,11 @@ public sealed class AudioDeviceControlFolderProvider : FolderProviderBase
 
     private readonly Dictionary<int, RotaryOverride> _rotaries;
 
-    public AudioDeviceControlFolderProvider(IWindowsAudioService audio, AudioEndpointInfo endpoint)
+    public AudioDeviceControlFolderProvider(IAudioService audio, AudioEndpointInfo endpoint, AudioAliasStore aliasStore)
     {
         _audio = audio;
         _endpoint = endpoint;
+        _aliasStore = aliasStore;
 
         _rotaries = new Dictionary<int, RotaryOverride>
         {
@@ -35,7 +37,7 @@ public sealed class AudioDeviceControlFolderProvider : FolderProviderBase
         };
     }
 
-    public override string Title => _endpoint.FriendlyName;
+    public override string Title => _aliasStore.Resolve(_endpoint);
 
     public override IReadOnlyDictionary<int, RotaryOverride> RotaryOverrides => _rotaries;
 
@@ -50,10 +52,14 @@ public sealed class AudioDeviceControlFolderProvider : FolderProviderBase
             _currentMute = muted;
             RaiseEntriesChanged();
         });
+
+        _aliasStore.Changed += RaiseEntriesChanged;
     }
 
     public override void OnExit()
     {
+        _aliasStore.Changed -= RaiseEntriesChanged;
+
         _subscription?.Dispose();
         _subscription = null;
     }
