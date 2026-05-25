@@ -7,18 +7,20 @@ namespace LoupixDeck.Plugin.Audio;
 /// for picking an output/input device and adjusting its volume and mute state.
 /// Backed by WASAPI on Windows and pactl (PulseAudio / pipewire-pulse) on Linux.
 /// </summary>
-public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage
+public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContributor
 {
     private readonly IAudioService _audio = CreateAudioService();
     private List<IPluginCommand> _commands = [];
     private AudioAliasStore? _aliasStore;
 
+    internal static readonly TimeSpan VolumeOverlayDuration = TimeSpan.FromMilliseconds(1500);
+
     public override PluginMetadata Metadata { get; } = new()
     {
         Id = "audio",
         Name = "Audio",
-        Version = new Version(1, 2, 0),
-        SdkVersion = new Version(1, 3, 0),
+        Version = new Version(1, 4, 0),
+        SdkVersion = new Version(1, 4, 0),
         Author = "RadiatorTwo",
         Description = "Pick the active audio output/input device and adjust volume and mute from the device."
     };
@@ -32,11 +34,69 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage
         _commands =
         [
             new AudioOutputFolderCommand(_audio, _aliasStore),
-            new AudioInputFolderCommand(_audio, _aliasStore)
+            new AudioInputFolderCommand(_audio, _aliasStore),
+            new AudioVolumeUpCommand(_audio),
+            new AudioVolumeDownCommand(_audio),
+            new AudioMuteToggleCommand(_audio),
         ];
     }
 
     public override IEnumerable<IPluginCommand> GetCommands() => _commands;
+
+    // ---- IMenuContributor ----
+
+    public Task<IReadOnlyList<MenuNode>> GetMenuNodes(ButtonTargets target)
+    {
+        if (!_audio.IsSupported || _aliasStore == null)
+            return Task.FromResult<IReadOnlyList<MenuNode>>([]);
+
+        var outputs = _audio.GetEndpoints(AudioEndpointKind.Render);
+        var inputs = _audio.GetEndpoints(AudioEndpointKind.Capture);
+
+        MenuNode AdjustmentGroup(string commandName, string label)
+        {
+            List<MenuNode> children = [];
+            if (outputs.Count > 0) children.Add(DeviceGroup("Output Devices", outputs, commandName));
+            if (inputs.Count > 0) children.Add(DeviceGroup("Input Devices", inputs, commandName));
+            return new MenuNode { Name = label, CommandName = string.Empty, Children = children };
+        }
+
+        List<MenuNode> rootChildren =
+        [
+            new MenuNode { Name = "Output Devices", CommandName = "Audio.OutputDevices" },
+            new MenuNode { Name = "Input Devices", CommandName = "Audio.InputDevices" },
+            AdjustmentGroup("Audio.VolumeUp", "Volume Up"),
+            AdjustmentGroup("Audio.VolumeDown", "Volume Down"),
+            AdjustmentGroup("Audio.MuteToggle", "Mute Toggle"),
+        ];
+
+        IReadOnlyList<MenuNode> roots =
+        [
+            new MenuNode { Name = "Audio", CommandName = string.Empty, Children = rootChildren },
+        ];
+
+        return Task.FromResult(roots);
+    }
+
+    private MenuNode DeviceGroup(string label, IReadOnlyList<AudioEndpointInfo> devices, string commandName)
+    {
+        var leaves = devices.Select(ep => new MenuNode
+        {
+            Name = _aliasStore!.Resolve(ep),
+            CommandName = commandName,
+            Parameters = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [AudioDeviceParameter.DeviceIdName] = ep.Id,
+            },
+        }).ToList();
+
+        return new MenuNode
+        {
+            Name = label,
+            CommandName = string.Empty,
+            Children = leaves,
+        };
+    }
 
     // ---- IPluginSettingsPage ----
 

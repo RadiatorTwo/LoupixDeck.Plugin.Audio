@@ -12,7 +12,8 @@ internal sealed class AudioOutputFolderCommand(IAudioService audio, AudioAliasSt
     {
         CommandName = "Audio.OutputDevices",
         DisplayName = "Audio: Output Devices",
-        Group = "Audio"
+        Group = "Audio",
+        HiddenFromMenu = true
     };
 
     public ButtonTargets SupportedTargets => ButtonTargets.TouchButton;
@@ -31,7 +32,8 @@ internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasSto
     {
         CommandName = "Audio.InputDevices",
         DisplayName = "Audio: Input Devices",
-        Group = "Audio"
+        Group = "Audio",
+        HiddenFromMenu = true
     };
 
     public ButtonTargets SupportedTargets => ButtonTargets.TouchButton;
