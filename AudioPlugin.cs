@@ -11,7 +11,10 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
 {
     private readonly IAudioService _audio = CreateAudioService();
     private List<IPluginCommand> _commands = [];
+    private List<ISideStripProvider> _stripProviders = [];
+    private AudioVolumeStripProvider? _stripProvider;
     private AudioAliasStore? _aliasStore;
+    private IPluginSettings? _settings;
 
     internal static readonly TimeSpan VolumeOverlayDuration = TimeSpan.FromMilliseconds(1500);
 
@@ -19,8 +22,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         Id = "audio",
         Name = "Audio",
-        Version = new Version(1, 4, 0),
-        SdkVersion = new Version(1, 4, 0),
+        Version = new Version(1, 5, 0),
+        SdkVersion = new Version(1, 11, 0),
         Author = "RadiatorTwo",
         Description = "Pick the active audio output/input device and adjust volume and mute from the device."
     };
@@ -29,6 +32,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         if (!_audio.IsSupported) return;
 
+        _settings = host.Settings;
         _aliasStore = new AudioAliasStore(host.Settings);
 
         _commands =
@@ -39,9 +43,14 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             new AudioVolumeDownCommand(_audio),
             new AudioMuteToggleCommand(_audio),
         ];
+
+        _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings);
+        _stripProviders = [_stripProvider];
     }
 
     public override IEnumerable<IPluginCommand> GetCommands() => _commands;
+
+    public override IEnumerable<ISideStripProvider> GetSideStripProviders() => _stripProviders;
 
     // ---- IMenuContributor ----
 
@@ -108,6 +117,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         _aliasStore?.CleanupEmpty();
         _aliasStore?.Reload();
+        // The layout toggle may have flipped — repaint any live volume strips.
+        _stripProvider?.NotifyLayoutChanged();
     }
 
     private IReadOnlyList<PluginSettingDescriptor> BuildSchema()
@@ -119,6 +130,22 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
 
         var list = new List<PluginSettingDescriptor>
         {
+            new()
+            {
+                Key = "__heading_strip",
+                Label = "Side-Strip Volume Bars",
+                Kind = PluginSettingKind.Heading,
+                Description = "How the volume bars are arranged on the side strip.",
+                DefaultValue = string.Empty
+            },
+            new()
+            {
+                Key = AudioVolumeStripProvider.HorizontalLayoutKey,
+                Label = "Horizontal segments",
+                Kind = PluginSettingKind.Toggle,
+                Description = "Off: side-by-side vertical bars. On: 3 stacked horizontal segments.",
+                DefaultValue = false
+            },
             new()
             {
                 Key = "__heading_outputs",
