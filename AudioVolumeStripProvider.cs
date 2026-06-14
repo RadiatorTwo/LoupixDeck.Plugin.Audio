@@ -8,7 +8,7 @@ namespace LoupixDeck.Plugin.Audio;
 /// actually controls — resolved from the rotary's bound <c>Audio.Volume*</c> command —
 /// so it stays in sync with the dial assignment without separate configuration.
 /// </summary>
-internal sealed class AudioVolumeStripProvider(IAudioService audio, IPluginSettings settings)
+internal sealed class AudioVolumeStripProvider(IAudioService audio, IPluginSettings settings, AudioAliasStore aliasStore)
     : ISideStripProvider, ISegmentStripProvider
 {
     /// <summary>Settings key: when true the strip renders as 3 stacked horizontal
@@ -23,7 +23,7 @@ internal sealed class AudioVolumeStripProvider(IAudioService audio, IPluginSetti
 
     public ISideStripSession CreateSession(SideStripContext context)
     {
-        var session = new AudioVolumeStripSession(audio, settings, context, Forget);
+        var session = new AudioVolumeStripSession(audio, settings, aliasStore, context, Forget);
         lock (_sessions) _sessions.Add(session);
         return session;
     }
@@ -33,7 +33,8 @@ internal sealed class AudioVolumeStripProvider(IAudioService audio, IPluginSetti
         lock (_sessions) _sessions.Remove(session);
     }
 
-    /// <summary>Repaints all live strips — called after the layout setting changes.</summary>
+    /// <summary>Repaints all live strips — called after settings change (layout toggle or a
+    /// device alias rename). Names are resolved at render time, so the repaint picks them up.</summary>
     public void NotifyLayoutChanged()
     {
         AudioVolumeStripSession[] snapshot;
@@ -47,7 +48,12 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
 {
     private sealed class Bar
     {
-        public string Name = string.Empty;
+        // Explicit rotary label (wins when set), the device's OS friendly name (alias
+        // fallback) and the dial number (last-resort label). The displayed name is
+        // resolved from these at render time so an alias rename repaints live.
+        public string Label = string.Empty;
+        public string Fallback = string.Empty;
+        public int DialNumber;
         public string? DeviceId;
         public float Volume;
         public bool Muted;
@@ -56,6 +62,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
 
     private readonly IAudioService _audio;
     private readonly IPluginSettings _settings;
+    private readonly AudioAliasStore _aliasStore;
     private readonly SideStripContext _context;
     private readonly Action<AudioVolumeStripSession> _onDisposed;
     private readonly int _width;
@@ -72,17 +79,19 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
     public void RaiseChanged() => StripChanged?.Invoke(this, EventArgs.Empty);
 
     public AudioVolumeStripSession(IAudioService audio, IPluginSettings settings,
-        SideStripContext context, Action<AudioVolumeStripSession> onDisposed)
+        AudioAliasStore aliasStore, SideStripContext context, Action<AudioVolumeStripSession> onDisposed)
     {
         _audio = audio;
         _settings = settings;
+        _aliasStore = aliasStore;
         _context = context;
         _onDisposed = onDisposed;
         _width = context.Width;
         _height = context.Height;
 
         // Friendly-name lookup so a dial without a custom label still shows the device
-        // it controls instead of a blank bar.
+        // it controls instead of a blank bar. The OS name is only the alias fallback —
+        // the displayed name (alias-or-friendly) is resolved at render time.
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
         try
         {
@@ -98,7 +107,10 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
             var bar = new Bar
             {
                 DeviceId = deviceId,
-                Name = ResolveName(rotary, deviceId, names)
+                Label = rotary.Label?.Trim() ?? string.Empty,
+                Fallback = deviceId != null && names.TryGetValue(deviceId, out var friendly)
+                    ? friendly : string.Empty,
+                DialNumber = rotary.Index + 1
             };
 
             if (bar.DeviceId != null)
@@ -130,7 +142,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
 
         var horizontal = _settings.Get(AudioVolumeStripProvider.HorizontalLayoutKey, false);
         AudioStripRenderer.Render(_bars.Select(b => new AudioStripRenderer.BarView(
-            b.Name, b.DeviceId != null, Math.Clamp(b.Volume, 0f, 1f), b.Muted)).ToList(),
+            DisplayName(b), b.DeviceId != null, Math.Clamp(b.Volume, 0f, 1f), b.Muted)).ToList(),
             canvas, horizontal);
         return true;
     }
@@ -153,24 +165,27 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
             return false;
 
         AudioStripRenderer.RenderBand(
-            new AudioStripRenderer.BarView(bar.Name, true, Math.Clamp(bar.Volume, 0f, 1f), bar.Muted),
+            new AudioStripRenderer.BarView(DisplayName(bar), true, Math.Clamp(bar.Volume, 0f, 1f), bar.Muted),
             canvas);
         return true;
     }
 
-    /// <summary>Picks the best display name for a dial: an explicit rotary label wins,
-    /// otherwise the controlled device's friendly name, otherwise a generic dial number.</summary>
-    private static string ResolveName(SideStripRotary rotary, string? deviceId,
-        IReadOnlyDictionary<string, string> names)
+    /// <summary>Picks the best display name for a dial, resolved at render time so an alias
+    /// rename repaints live: an explicit rotary label wins, otherwise the user-defined alias
+    /// (falling back to the device's friendly name), otherwise a generic dial number.</summary>
+    private string DisplayName(Bar bar)
     {
-        if (!string.IsNullOrWhiteSpace(rotary.Label))
-            return rotary.Label.Trim();
+        if (!string.IsNullOrWhiteSpace(bar.Label))
+            return bar.Label;
 
-        if (deviceId != null && names.TryGetValue(deviceId, out var friendly)
-                             && !string.IsNullOrWhiteSpace(friendly))
-            return friendly;
+        if (bar.DeviceId != null)
+        {
+            var resolved = _aliasStore.Resolve(bar.DeviceId, bar.Fallback);
+            if (!string.IsNullOrWhiteSpace(resolved))
+                return resolved;
+        }
 
-        return $"Dial {rotary.Index + 1}";
+        return $"Dial {bar.DialNumber}";
     }
 
     /// <summary>Tapping a bar toggles mute on that bar's device. The bars run left-to-right

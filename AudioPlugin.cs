@@ -44,7 +44,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             new AudioMuteToggleCommand(_audio),
         ];
 
-        _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings);
+        _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings, _aliasStore);
         _stripProviders = [_stripProvider];
     }
 
