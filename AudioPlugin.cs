@@ -22,8 +22,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         Id = "audio",
         Name = "Audio",
-        Version = new Version(1, 5, 0),
-        SdkVersion = new Version(1, 11, 0),
+        Version = new Version(1, 6, 0),
+        SdkVersion = new Version(1, 13, 0),
         Author = "RadiatorTwo",
         Description = "Pick the active audio output/input device and adjust volume and mute from the device."
     };
@@ -62,22 +62,20 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         var outputs = _audio.GetEndpoints(AudioEndpointKind.Render);
         var inputs = _audio.GetEndpoints(AudioEndpointKind.Capture);
 
-        MenuNode AdjustmentGroup(string commandName, string label)
-        {
-            List<MenuNode> children = [];
-            if (outputs.Count > 0) children.Add(DeviceGroup("Output Devices", outputs, commandName));
-            if (inputs.Count > 0) children.Add(DeviceGroup("Input Devices", inputs, commandName));
-            return new MenuNode { Name = label, CommandName = string.Empty, Children = children };
-        }
+        // The "Volume Control" rotary group only makes sense on a rotary encoder;
+        // it never appears for simple/touch buttons.
+        bool includeGroup = target.HasFlag(ButtonTargets.RotaryEncoder);
 
         List<MenuNode> rootChildren =
         [
-            new MenuNode { Name = "Output Devices", CommandName = "Audio.OutputDevices" },
-            new MenuNode { Name = "Input Devices", CommandName = "Audio.InputDevices" },
-            AdjustmentGroup("Audio.VolumeUp", "Volume Up"),
-            AdjustmentGroup("Audio.VolumeDown", "Volume Down"),
-            AdjustmentGroup("Audio.MuteToggle", "Mute Toggle"),
+            new MenuNode { Name = "Select Output Device", CommandName = "Audio.OutputDevices" },
+            new MenuNode { Name = "Select Input Device", CommandName = "Audio.InputDevices" },
         ];
+
+        if (outputs.Count > 0)
+            rootChildren.Add(DevicesCategory("Output Devices", outputs, includeGroup));
+        if (inputs.Count > 0)
+            rootChildren.Add(DevicesCategory("Input Devices", inputs, includeGroup));
 
         IReadOnlyList<MenuNode> roots =
         [
@@ -87,23 +85,50 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         return Task.FromResult(roots);
     }
 
-    private MenuNode DeviceGroup(string label, IReadOnlyList<AudioEndpointInfo> devices, string commandName)
+    private MenuNode DevicesCategory(string label, IReadOnlyList<AudioEndpointInfo> devices, bool includeGroup)
     {
-        var leaves = devices.Select(ep => new MenuNode
+        var deviceNodes = devices.Select(ep => DeviceNode(ep, includeGroup)).ToList();
+        return new MenuNode { Name = label, CommandName = string.Empty, Children = deviceNodes };
+    }
+
+    /// <summary>
+    /// One folder per device. Inside it: the "Volume Control" rotary group (rotary
+    /// target only) followed by the individual Volume Down / Volume Up / Mute
+    /// commands, all bound to this device.
+    /// </summary>
+    private MenuNode DeviceNode(AudioEndpointInfo ep, bool includeGroup)
+    {
+        Dictionary<string, string> DeviceParam() => new(StringComparer.Ordinal)
         {
-            Name = _aliasStore!.Resolve(ep),
-            CommandName = commandName,
-            Parameters = new Dictionary<string, string>(StringComparer.Ordinal)
+            [AudioDeviceParameter.DeviceIdName] = ep.Id,
+        };
+
+        List<MenuNode> children = [];
+
+        if (includeGroup)
+        {
+            children.Add(new MenuNode
             {
-                [AudioDeviceParameter.DeviceIdName] = ep.Id,
-            },
-        }).ToList();
+                Name = "Volume Control",
+                RotaryGroup = new Dictionary<RotaryAction, MenuCommandRef>
+                {
+                    // Counter-clockwise lowers, clockwise raises, press mutes.
+                    [RotaryAction.CounterClockwise] = new() { CommandName = "Audio.VolumeDown", Parameters = DeviceParam() },
+                    [RotaryAction.Clockwise] = new() { CommandName = "Audio.VolumeUp", Parameters = DeviceParam() },
+                    [RotaryAction.Press] = new() { CommandName = "Audio.MuteToggle", Parameters = DeviceParam() },
+                },
+            });
+        }
+
+        children.Add(new MenuNode { Name = "Volume Down", CommandName = "Audio.VolumeDown", Parameters = DeviceParam() });
+        children.Add(new MenuNode { Name = "Volume Up", CommandName = "Audio.VolumeUp", Parameters = DeviceParam() });
+        children.Add(new MenuNode { Name = "Mute", CommandName = "Audio.MuteToggle", Parameters = DeviceParam() });
 
         return new MenuNode
         {
-            Name = label,
+            Name = _aliasStore!.Resolve(ep),
             CommandName = string.Empty,
-            Children = leaves,
+            Children = children,
         };
     }
 
