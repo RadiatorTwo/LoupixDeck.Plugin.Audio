@@ -23,7 +23,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         Id = "audio",
         Name = "Audio",
         Version = new Version(1, 6, 0),
-        SdkVersion = new Version(1, 13, 0),
+        SdkVersion = new Version(1, 16, 0),
         Author = "RadiatorTwo",
         Description = "Pick the active audio output/input device and adjust volume and mute from the device."
     };
@@ -49,6 +49,17 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     }
 
     public override IEnumerable<IPluginCommand> GetCommands() => _commands;
+
+    public override IReadOnlyList<CommandGroupDescriptor> GetCommandGroups() =>
+    [
+        new CommandGroupDescriptor
+        {
+            Group = "Audio",
+            Description = "Volume, mute and device control",
+            Icon = "\U000F057E",
+            Section = CommandGroupSection.Plugins
+        }
+    ];
 
     public override IEnumerable<ISideStripProvider> GetSideStripProviders() => _stripProviders;
 

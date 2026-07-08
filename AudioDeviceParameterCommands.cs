@@ -36,6 +36,8 @@ internal sealed class AudioVolumeUpCommand(IAudioService audio) : IPluginCommand
         CommandName = "Audio.VolumeUp",
         DisplayName = "Audio: Volume Up",
         Group = "Audio",
+        Icon = "\U000F057E",
+        Description = "Raise the device volume",
         HiddenFromMenu = true,
         ParameterTemplate = "({deviceId})",
         Parameters = AudioDeviceParameter.DeviceIdParameters
@@ -61,6 +63,8 @@ internal sealed class AudioVolumeDownCommand(IAudioService audio) : IPluginComma
         CommandName = "Audio.VolumeDown",
         DisplayName = "Audio: Volume Down",
         Group = "Audio",
+        Icon = "\U000F057F",
+        Description = "Lower the device volume",
         HiddenFromMenu = true,
         ParameterTemplate = "({deviceId})",
         Parameters = AudioDeviceParameter.DeviceIdParameters
@@ -86,6 +90,8 @@ internal sealed class AudioMuteToggleCommand(IAudioService audio) : IPluginComma
         CommandName = "Audio.MuteToggle",
         DisplayName = "Audio: Mute Toggle",
         Group = "Audio",
+        Icon = "\U000F075F",
+        Description = "Toggle mute for the device",
         HiddenFromMenu = true,
         ParameterTemplate = "({deviceId})",
         Parameters = AudioDeviceParameter.DeviceIdParameters

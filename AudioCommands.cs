@@ -13,6 +13,8 @@ internal sealed class AudioOutputFolderCommand(IAudioService audio, AudioAliasSt
         CommandName = "Audio.OutputDevices",
         DisplayName = "Audio: Output Devices",
         Group = "Audio",
+        Icon = "\U000F04C3",
+        Description = "Open the output device picker folder",
         HiddenFromMenu = true
     };
 
@@ -33,6 +35,8 @@ internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasSto
         CommandName = "Audio.InputDevices",
         DisplayName = "Audio: Input Devices",
         Group = "Audio",
+        Icon = "\U000F036C",
+        Description = "Open the input device picker folder",
         HiddenFromMenu = true
     };
 
