@@ -259,6 +259,10 @@ internal static class AudioStripCommandParser
             if (close < 0) continue;
 
             var id = command[start..close].Trim();
+            // The device id is the first parameter; ignore any trailing settings such as the
+            // configurable step (e.g. "Audio.VolumeUp(<id>,2)").
+            var comma = id.IndexOf(',');
+            if (comma >= 0) id = id[..comma].Trim();
             if (!string.IsNullOrWhiteSpace(id)) return id;
         }
 
