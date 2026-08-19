@@ -14,6 +14,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     private List<ISideStripProvider> _stripProviders = [];
     private AudioVolumeStripProvider? _stripProvider;
     private AudioAliasStore? _aliasStore;
+    private SoundLibrary? _soundLibrary;
+    private PlaybackDeviceStore? _playbackDevices;
     private IPluginSettings? _settings;
 
     internal static readonly TimeSpan VolumeOverlayDuration = TimeSpan.FromMilliseconds(1500);
@@ -22,7 +24,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         Id = "audio",
         Name = "Audio",
-        Version = new Version(1, 6, 0),
+        Version = new Version(1, 7, 0),
         SdkVersion = new Version(1, 16, 0),
         Author = "RadiatorTwo",
         Description = "Pick the active audio output/input device and adjust volume and mute from the device."
@@ -34,6 +36,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
 
         _settings = host.Settings;
         _aliasStore = new AudioAliasStore(host.Settings);
+        _soundLibrary = new SoundLibrary(host.Settings);
+        _playbackDevices = new PlaybackDeviceStore(host.Settings);
 
         _commands =
         [
@@ -42,10 +46,19 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             new AudioVolumeUpCommand(_audio),
             new AudioVolumeDownCommand(_audio),
             new AudioMuteToggleCommand(_audio),
+            new AudioPlaySoundCommand(_audio, _soundLibrary, _playbackDevices, host),
         ];
 
         _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings, _aliasStore);
         _stripProviders = [_stripProvider];
+    }
+
+    public override void Shutdown()
+    {
+        // Sounds are fire-and-forget, so an unloaded plugin could otherwise leave
+        // a WASAPI stream or a paplay process behind.
+        _audio.StopAllPlayback();
+        base.Shutdown();
     }
 
     public override IEnumerable<IPluginCommand> GetCommands() => _commands;
@@ -88,12 +101,78 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         if (inputs.Count > 0)
             rootChildren.Add(DevicesCategory("Input Devices", inputs, includeGroup));
 
+        MenuNode? sounds = SoundsCategory();
+        if (sounds != null)
+            rootChildren.Add(sounds);
+
         IReadOnlyList<MenuNode> roots =
         [
             new MenuNode { Name = "Audio", CommandName = string.Empty, Children = rootChildren },
         ];
 
         return Task.FromResult(roots);
+    }
+
+    /// <summary>
+    /// "Play Sound" category listing the files of the configured sound folder, with
+    /// sub-folders as nested menus. Returns null when no folder is configured or it holds
+    /// no supported files — an empty category would only be dead weight in the menu.
+    /// </summary>
+    private MenuNode? SoundsCategory()
+    {
+        IReadOnlyList<SoundFile> sounds = _soundLibrary?.Enumerate() ?? [];
+        if (sounds.Count == 0) return null;
+
+        // MenuNode.Children is immutable, so the tree is assembled in a mutable
+        // shadow structure and converted in one go.
+        SoundFolder root = new();
+
+        foreach (SoundFile sound in sounds)
+        {
+            string[] segments = sound.RelativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            SoundFolder parent = root;
+
+            for (int i = 0; i < segments.Length - 1; i++)
+            {
+                if (!parent.Folders.TryGetValue(segments[i], out SoundFolder? child))
+                {
+                    child = new SoundFolder();
+                    parent.Folders[segments[i]] = child;
+                }
+                parent = child;
+            }
+
+            parent.Sounds.Add(sound);
+        }
+
+        return root.ToMenuNode("Play Sound");
+    }
+
+    /// <summary>Mutable builder for the nested "Play Sound" menu.</summary>
+    private sealed class SoundFolder
+    {
+        public SortedDictionary<string, SoundFolder> Folders { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public List<SoundFile> Sounds { get; } = [];
+
+        public MenuNode ToMenuNode(string name) => new()
+        {
+            Name = name,
+            CommandName = string.Empty,
+            // Sub-folders first, then the playable files.
+            Children =
+            [
+                .. Folders.Select(folder => folder.Value.ToMenuNode(folder.Key)),
+                .. Sounds.Select(sound => new MenuNode
+                {
+                    Name = sound.DisplayName,
+                    CommandName = "Audio.PlaySound",
+                    Parameters = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        [AudioPlaySoundCommand.SoundParameterName] = SoundLibrary.Encode(sound.RelativePath),
+                    },
+                }),
+            ],
+        };
     }
 
     private MenuNode DevicesCategory(string label, IReadOnlyList<AudioEndpointInfo> devices, bool includeGroup)
@@ -153,6 +232,9 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         _aliasStore?.CleanupEmpty();
         _aliasStore?.Reload();
+        // Collapse the per-device playback toggles back into a single selection.
+        if (_audio.IsSupported)
+            _playbackDevices?.Normalize(_audio.GetEndpoints(AudioEndpointKind.Render));
         // The layout toggle may have flipped — repaint any live volume strips.
         _stripProvider?.NotifyLayoutChanged();
     }
@@ -234,6 +316,60 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             }
         }
 
+        list.Add(new PluginSettingDescriptor
+        {
+            Key = "__heading_sounds",
+            Label = "Sound Playback",
+            Kind = PluginSettingKind.Heading,
+            Description = "Folder holding the audio files. After saving they show up in the "
+                          + "command menu under Audio → Play Sound.",
+            DefaultValue = string.Empty
+        });
+        list.Add(new PluginSettingDescriptor
+        {
+            Key = SoundLibrary.FolderKey,
+            Label = "Sound folder",
+            Kind = PluginSettingKind.Text,
+            Description = "Full path to a folder with .wav, .mp3, .flac, .m4a or .aiff files "
+                          + "(.ogg on Linux only). Sub-folders become sub-menus.",
+            DefaultValue = string.Empty
+        });
+
+        list.Add(new PluginSettingDescriptor
+        {
+            Key = "__heading_playback_device",
+            Label = "Playback Device",
+            Kind = PluginSettingKind.Heading,
+            Description = "Device the sounds play on. Enable exactly one — with none enabled "
+                          + "the system default device is used.",
+            DefaultValue = string.Empty
+        });
+        foreach (var ep in outputs)
+        {
+            list.Add(new PluginSettingDescriptor
+            {
+                Key = PlaybackDeviceStore.TogglePrefix + ep.Id,
+                Label = _aliasStore.Resolve(ep),
+                Kind = PluginSettingKind.Toggle,
+                DefaultValue = false
+            });
+        }
+
+        // A selected device that is currently unplugged keeps its selection, so it needs a
+        // toggle of its own — otherwise the choice could never be cleared again.
+        var selectedId = _playbackDevices?.SelectedId;
+        if (selectedId != null && outputs.All(e => e.Id != selectedId))
+        {
+            list.Add(new PluginSettingDescriptor
+            {
+                Key = PlaybackDeviceStore.TogglePrefix + selectedId,
+                Label = $"{_aliasStore.Resolve(selectedId, selectedId)} (not connected)",
+                Kind = PluginSettingKind.Toggle,
+                Description = "Switch off to fall back to the system default device.",
+                DefaultValue = true
+            });
+        }
+
         return list;
     }
 
@@ -263,6 +399,8 @@ internal sealed class UnsupportedAudioService : IAudioService
     public void SetMute(string endpointId, bool muted) { }
     public IDisposable SubscribeVolumeChanges(string endpointId, Action<float, bool> onChange)
         => NoopDisposable.Instance;
+    public void PlayFile(string filePath, string? endpointId) { }
+    public void StopAllPlayback() { }
 
     private sealed class NoopDisposable : IDisposable
     {

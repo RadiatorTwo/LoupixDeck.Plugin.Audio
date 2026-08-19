@@ -11,6 +11,12 @@ namespace LoupixDeck.Plugin.Audio;
 public sealed class LinuxAudioService : IAudioService
 {
     private static readonly Lazy<bool> HasPactl = new(DetectPactl);
+    private static readonly Lazy<bool> HasPaplay = new(() => DetectTool("paplay", "--version"));
+    private static readonly Lazy<bool> HasFfplay = new(() => DetectTool("ffplay", "-version"));
+    private static readonly Lazy<bool> HasMpv = new(() => DetectTool("mpv", "--version"));
+
+    private readonly List<Process> _playbacks = [];
+    private readonly Lock _playbackLock = new();
 
     public bool IsSupported => HasPactl.Value;
 
@@ -118,6 +124,99 @@ public sealed class LinuxAudioService : IAudioService
         return new Subscription(proc, cts);
     }
 
+    public void PlayFile(string filePath, string? endpointId)
+    {
+        string? sink = string.IsNullOrWhiteSpace(endpointId)
+            ? null
+            : SplitId(endpointId).Name;
+
+        // paplay goes through libsndfile (wav/flac/ogg) and cannot decode mp3/m4a.
+        string extension = Path.GetExtension(filePath);
+        bool needsDecoder =
+            extension.Equals(".mp3", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".m4a", StringComparison.OrdinalIgnoreCase);
+
+        Process process =
+            (!needsDecoder && HasPaplay.Value ? StartPaplay(filePath, sink) : null)
+            ?? StartDecoder(filePath, sink)
+            ?? throw new InvalidOperationException(
+                $"No player available for '{filePath}'. Install pulseaudio-utils (paplay), ffmpeg (ffplay) or mpv.");
+
+        lock (_playbackLock) _playbacks.Add(process);
+
+        // Reap the entry once the sound ends, without blocking the caller. Order matters:
+        // the handler is attached first, and EnableRaisingEvents also fires for a process
+        // that has already exited — so the entry cannot leak.
+        process.Exited += (_, _) =>
+        {
+            lock (_playbackLock) _playbacks.Remove(process);
+            process.Dispose();
+        };
+        process.EnableRaisingEvents = true;
+    }
+
+    public void StopAllPlayback()
+    {
+        Process[] running;
+        lock (_playbackLock)
+        {
+            running = [.. _playbacks];
+            _playbacks.Clear();
+        }
+
+        foreach (Process process in running)
+        {
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+            catch { /* already gone */ }
+            process.Dispose();
+        }
+    }
+
+    private static Process? StartPaplay(string filePath, string? sink)
+    {
+        ProcessStartInfo psi = new("paplay") { UseShellExecute = false, CreateNoWindow = true };
+        if (!string.IsNullOrEmpty(sink)) psi.ArgumentList.Add($"--device={sink}");
+        psi.ArgumentList.Add(filePath);
+
+        try { return Process.Start(psi); }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// ffplay/mpv for the formats paplay cannot decode. Both are routed to the chosen sink
+    /// via PULSE_SINK, which the PulseAudio and pipewire-pulse client libraries honour.
+    /// </summary>
+    private static Process? StartDecoder(string filePath, string? sink)
+    {
+        if (HasFfplay.Value)
+        {
+            ProcessStartInfo psi = new("ffplay") { UseShellExecute = false, CreateNoWindow = true };
+            psi.ArgumentList.Add("-nodisp");
+            psi.ArgumentList.Add("-autoexit");
+            psi.ArgumentList.Add("-loglevel");
+            psi.ArgumentList.Add("quiet");
+            psi.ArgumentList.Add(filePath);
+            if (!string.IsNullOrEmpty(sink)) psi.Environment["PULSE_SINK"] = sink;
+
+            try { return Process.Start(psi); }
+            catch { /* fall through to mpv */ }
+        }
+
+        if (HasMpv.Value)
+        {
+            ProcessStartInfo psi = new("mpv") { UseShellExecute = false, CreateNoWindow = true };
+            psi.ArgumentList.Add("--no-video");
+            psi.ArgumentList.Add("--really-quiet");
+            psi.ArgumentList.Add(filePath);
+            if (!string.IsNullOrEmpty(sink)) psi.Environment["PULSE_SINK"] = sink;
+
+            try { return Process.Start(psi); }
+            catch { return null; }
+        }
+
+        return null;
+    }
+
     // --- helpers ---------------------------------------------------------
 
     private static (AudioEndpointKind Kind, string Name) SplitId(string id)
@@ -175,11 +274,14 @@ public sealed class LinuxAudioService : IAudioService
         }
     }
 
-    private static bool DetectPactl()
+    private static bool DetectPactl() => DetectTool("pactl", "--version");
+
+    /// <summary>Probes once whether a CLI tool is installed and runnable.</summary>
+    private static bool DetectTool(string fileName, string arguments)
     {
         try
         {
-            var psi = new ProcessStartInfo("pactl", "--version")
+            var psi = new ProcessStartInfo(fileName, arguments)
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
