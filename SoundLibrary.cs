@@ -39,15 +39,24 @@ public sealed class SoundLibrary(IPluginSettings settings)
     private static StringComparison PathComparison =>
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
+    /// <summary>The raw folder setting as entered by the user, or null when unset.</summary>
+    public string? ConfiguredFolder
+    {
+        get
+        {
+            string? configured = settings.Get<string>(FolderKey);
+            return string.IsNullOrWhiteSpace(configured) ? null : configured.Trim();
+        }
+    }
+
     /// <summary>The configured folder, or null when unset or missing on disk.</summary>
     public string? FolderPath
     {
         get
         {
-            string? configured = settings.Get<string>(FolderKey);
-            if (string.IsNullOrWhiteSpace(configured)) return null;
+            string? trimmed = ConfiguredFolder;
+            if (trimmed == null) return null;
 
-            string trimmed = configured.Trim();
             try
             {
                 return Directory.Exists(trimmed) ? Path.GetFullPath(trimmed) : null;

@@ -101,9 +101,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         if (inputs.Count > 0)
             rootChildren.Add(DevicesCategory("Input Devices", inputs, includeGroup));
 
-        MenuNode? sounds = SoundsCategory();
-        if (sounds != null)
-            rootChildren.Add(sounds);
+        rootChildren.Add(SoundsCategory());
 
         IReadOnlyList<MenuNode> roots =
         [
@@ -115,13 +113,21 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
 
     /// <summary>
     /// "Play Sound" category listing the files of the configured sound folder, with
-    /// sub-folders as nested menus. Returns null when no folder is configured or it holds
-    /// no supported files — an empty category would only be dead weight in the menu.
+    /// sub-folders as nested menus. When there is nothing to list, the category still
+    /// shows a hint saying why — otherwise the command would silently be missing and the
+    /// sound folder setting would be impossible to discover.
     /// </summary>
-    private MenuNode? SoundsCategory()
+    private MenuNode SoundsCategory()
     {
         IReadOnlyList<SoundFile> sounds = _soundLibrary?.Enumerate() ?? [];
-        if (sounds.Count == 0) return null;
+        if (sounds.Count == 0)
+            return new MenuNode
+            {
+                Name = "Play Sound",
+                CommandName = string.Empty,
+                // A node with no command is ignored when assigned, so this is inert.
+                Children = [new MenuNode { Name = EmptySoundsHint(), CommandName = string.Empty }],
+            };
 
         // MenuNode.Children is immutable, so the tree is assembled in a mutable
         // shadow structure and converted in one go.
@@ -146,6 +152,18 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         }
 
         return root.ToMenuNode("Play Sound");
+    }
+
+    /// <summary>Explains why the "Play Sound" category has nothing to offer.</summary>
+    private string EmptySoundsHint()
+    {
+        string? configured = _soundLibrary?.ConfiguredFolder;
+        if (configured == null)
+            return "Set a sound folder in the Audio plugin settings";
+
+        return _soundLibrary?.FolderPath == null
+            ? $"Sound folder not found: {configured}"
+            : "No supported audio files in the sound folder";
     }
 
     /// <summary>Mutable builder for the nested "Play Sound" menu.</summary>
