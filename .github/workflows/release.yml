@@ -73,13 +73,18 @@ jobs:
 
           $zip = "LoupixDeck.Plugin.Audio-$($manifest.version).zip"
           Compress-Archive -Path $out -DestinationPath $zip -Force
-          "zip=$zip" >> $env:GITHUB_OUTPUT
+          "zip=$zip"       >> $env:GITHUB_OUTPUT
+          "name=LoupixDeck.Plugin.Audio-$($manifest.version)" >> $env:GITHUB_OUTPUT
 
+      # Upload the staged folder, not the zip: upload-artifact always zips what
+      # it is given, so handing it the zip would yield a zip inside a zip. This
+      # way the downloaded artifact is itself the installable archive, with
+      # plugin.json in a single top-level folder named after the plugin id.
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.package.outputs.zip }}
-          path: ${{ steps.package.outputs.zip }}
+          name: ${{ steps.package.outputs.name }}
+          path: staging
 
       # Tag pushes only: create a GitHub release with the zip attached.
       - name: Create GitHub Release
