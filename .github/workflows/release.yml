@@ -1,0 +1,89 @@
+name: Release Plugin
+
+# Pushing a tag (e.g. v1.7.0) creates a GitHub release with the plugin zip.
+# A manual run (workflow_dispatch) only builds the zip as an artifact.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Run the JavaScript actions on Node.js 24 (the default from 2026-06-16);
+# silences the Node 20 deprecation warning without pinning action versions.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  release:
+    # Windows, because nuget.config points to a local feed via a backslash path
+    # (..\LoupixDeck.PluginSdk\nupkg) which NuGet would not treat as a path on Linux.
+    runs-on: windows-latest
+
+    steps:
+      # Check out plugin and SDK as sibling folders so the relative feed path
+      # from nuget.config (..\LoupixDeck.PluginSdk\nupkg) resolves.
+      - name: Checkout plugin
+        uses: actions/checkout@v4
+        with:
+          path: LoupixDeck.Plugin.Audio
+
+      - name: Checkout SDK
+        uses: actions/checkout@v4
+        with:
+          repository: RadiatorTwo/LoupixDeck.PluginSdk
+          path: LoupixDeck.PluginSdk
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      # Produces LoupixDeck.PluginSdk.nupkg in the local feed (GeneratePackageOnBuild).
+      - name: Build SDK package
+        run: dotnet build -c Release LoupixDeck.PluginSdk/LoupixDeck.PluginSdk.csproj
+
+      # Publish (not build), so third-party dependencies such as NAudio end up
+      # next to the plugin assembly. The SDK itself is <ExcludeAssets>runtime</ExcludeAssets>,
+      # so its DLL is never copied — the host provides it.
+      - name: Publish plugin
+        run: dotnet publish -c Release LoupixDeck.Plugin.Audio/LoupixDeck.Plugin.Audio.csproj -o publish --nologo
+
+      # Assemble the plugin folder the same way release.ps1 does: every DLL from
+      # the publish output plus deps.json, and plugin.json from the repo root.
+      # Folder name = plugin id, which is what the host extracts to plugins/<id>.
+      - name: Stage and zip
+        id: package
+        shell: pwsh
+        run: |
+          $manifest = Get-Content "LoupixDeck.Plugin.Audio/plugin.json" | ConvertFrom-Json
+          $assembly = $manifest.entryAssembly -replace '\.dll$', ''
+          $out      = "staging/$($manifest.id)"
+
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Get-ChildItem "publish" -Filter "*.dll" | Copy-Item -Destination $out
+          Copy-Item "publish/$assembly.deps.json"          $out
+          Copy-Item "LoupixDeck.Plugin.Audio/plugin.json"  $out
+
+          if (-not (Test-Path "$out/$($manifest.entryAssembly)")) {
+              throw "Entry assembly $($manifest.entryAssembly) missing from the staged folder."
+          }
+
+          $zip = "LoupixDeck.Plugin.Audio-$($manifest.version).zip"
+          Compress-Archive -Path $out -DestinationPath $zip -Force
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.zip }}
+          path: ${{ steps.package.outputs.zip }}
+
+      # Tag pushes only: create a GitHub release with the zip attached.
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.zip }}
