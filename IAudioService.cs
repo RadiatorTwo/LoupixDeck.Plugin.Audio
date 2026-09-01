@@ -24,4 +24,14 @@ public interface IAudioService
     /// to unsubscribe.
     /// </summary>
     IDisposable SubscribeVolumeChanges(string endpointId, Action<float, bool> onChange);
+
+    /// <summary>
+    /// Starts playing a file on the given render endpoint, or on the system default when
+    /// <paramref name="endpointId"/> is null. Returns immediately; every call starts its own
+    /// playback, so repeated presses overlap. Throws when the playback cannot be started.
+    /// </summary>
+    void PlayFile(string filePath, string? endpointId);
+
+    /// <summary>Stops and releases every playback started by <see cref="PlayFile"/>.</summary>
+    void StopAllPlayback();
 }
