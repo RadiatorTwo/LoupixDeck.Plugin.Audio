@@ -1,0 +1,3 @@
+# Normalize all text files to LF in the repository. Binary files are
+# detected by content and left untouched.
+* text=auto eol=lf
