@@ -172,6 +172,156 @@ public sealed class LinuxAudioService : IAudioService
         }
     }
 
+    /// <summary>
+    /// <paramref name="endpointId"/> is accepted and ignored: pactl lists every sink input
+    /// regardless of its sink, and filtering by sink would hide exactly the streams a user
+    /// wants to turn down when they are playing on another device.
+    /// </summary>
+    public IReadOnlyList<AudioSessionInfo> GetSessions(string? endpointId)
+    {
+        if (!IsSupported) return [];
+
+        Dictionary<string, AudioSessionInfo> byApp = new(StringComparer.Ordinal);
+        foreach (SinkInput input in ParseSinkInputs(RunPactl("list sink-inputs")))
+        {
+            if (input.AppId.Length == 0) continue;
+
+            // Several streams per app: keep the loudest, and count the app as muted
+            // only when every one of its streams is.
+            if (byApp.TryGetValue(input.AppId, out AudioSessionInfo? existing))
+            {
+                byApp[input.AppId] = existing with
+                {
+                    Volume = Math.Max(existing.Volume, input.Volume),
+                    Muted = existing.Muted && input.Muted
+                };
+            }
+            else
+            {
+                byApp[input.AppId] = new AudioSessionInfo(
+                    input.AppId, input.DisplayName, input.Volume, input.Muted);
+            }
+        }
+
+        return [.. byApp.Values.OrderBy(s => s.DisplayName, StringComparer.CurrentCultureIgnoreCase)];
+    }
+
+    public float? GetSessionVolume(string? endpointId, string appId)
+    {
+        if (!IsSupported) return null;
+
+        float? result = null;
+        foreach (SinkInput input in ParseSinkInputs(RunPactl("list sink-inputs")))
+        {
+            if (!string.Equals(input.AppId, appId, StringComparison.Ordinal)) continue;
+            result = result is { } current ? Math.Max(current, input.Volume) : input.Volume;
+        }
+        return result;
+    }
+
+    public void SetSessionVolume(string? endpointId, string appId, float scalar01)
+    {
+        if (!IsSupported) return;
+
+        int percent = (int)Math.Round(Math.Clamp(scalar01, 0f, 1f) * 100f);
+        foreach (SinkInput input in ParseSinkInputs(RunPactl("list sink-inputs")))
+        {
+            if (string.Equals(input.AppId, appId, StringComparison.Ordinal))
+                RunPactl($"set-sink-input-volume {input.Index.ToString(CultureInfo.InvariantCulture)} {percent.ToString(CultureInfo.InvariantCulture)}%");
+        }
+    }
+
+    public bool? GetSessionMute(string? endpointId, string appId)
+    {
+        if (!IsSupported) return null;
+
+        bool? result = null;
+        foreach (SinkInput input in ParseSinkInputs(RunPactl("list sink-inputs")))
+        {
+            if (!string.Equals(input.AppId, appId, StringComparison.Ordinal)) continue;
+            result = result is { } current ? current && input.Muted : input.Muted;
+        }
+        return result;
+    }
+
+    public void SetSessionMute(string? endpointId, string appId, bool muted)
+    {
+        if (!IsSupported) return;
+
+        foreach (SinkInput input in ParseSinkInputs(RunPactl("list sink-inputs")))
+        {
+            if (string.Equals(input.AppId, appId, StringComparison.Ordinal))
+                RunPactl($"set-sink-input-mute {input.Index.ToString(CultureInfo.InvariantCulture)} {(muted ? "1" : "0")}");
+        }
+    }
+
+    /// <summary>
+    /// Always null: resolving the foreground window on Linux needs X11/xprop and does not
+    /// work on Wayland at all, so the plugin does not pretend to support it.
+    /// </summary>
+    public string? GetForegroundAppId() => null;
+
+    public bool SetDefaultEndpoint(string endpointId)
+    {
+        if (!IsSupported) return false;
+
+        (AudioEndpointKind kind, string name) = SplitId(endpointId);
+        string noun = kind == AudioEndpointKind.Render ? "sink" : "source";
+        RunPactl($"set-default-{noun} \"{name}\"");
+
+        // pactl leaves already-running streams on the old device, which reads as "nothing
+        // happened" to the user. Move them across too.
+        if (kind == AudioEndpointKind.Render)
+        {
+            foreach (SinkInput input in ParseSinkInputs(RunPactl("list sink-inputs")))
+                RunPactl($"move-sink-input {input.Index.ToString(CultureInfo.InvariantCulture)} \"{name}\"");
+        }
+
+        string current = RunPactl($"get-default-{noun}").Trim();
+        return string.Equals(current, name, StringComparison.Ordinal);
+    }
+
+    /// <summary>One parsed "pactl list sink-inputs" block.</summary>
+    private readonly record struct SinkInput(
+        int Index, string AppId, string DisplayName, float Volume, bool Muted);
+
+    private static IReadOnlyList<SinkInput> ParseSinkInputs(string pactlList)
+    {
+        List<SinkInput> result = [];
+
+        foreach (string block in pactlList.Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
+        {
+            Match indexMatch = Regex.Match(block, @"Sink Input #(\d+)");
+            if (!indexMatch.Success) continue;
+
+            // application.process.binary is the executable name, which is the stable
+            // identity used in saved bindings; application.name is only for display.
+            string binary = Regex.Match(block,
+                @"application\.process\.binary\s*=\s*""([^""]+)""").Groups[1].Value;
+            string appName = Regex.Match(block,
+                @"application\.name\s*=\s*""([^""]+)""").Groups[1].Value;
+
+            Match volumeMatch = Regex.Match(block, @"Volume:[^\n]*?(\d+)%");
+            float volume = volumeMatch.Success
+                ? Math.Clamp(int.Parse(volumeMatch.Groups[1].Value, CultureInfo.InvariantCulture) / 100f, 0f, 1f)
+                : 0f;
+
+            bool muted = Regex.Match(block, @"Mute:\s*(\w+)").Groups[1].Value
+                .Equals("yes", StringComparison.OrdinalIgnoreCase);
+
+            string appId = Path.GetFileNameWithoutExtension(binary).ToLowerInvariant();
+
+            result.Add(new SinkInput(
+                int.Parse(indexMatch.Groups[1].Value, CultureInfo.InvariantCulture),
+                appId,
+                string.IsNullOrEmpty(appName) ? appId : appName,
+                volume,
+                muted));
+        }
+
+        return result;
+    }
+
     private static Process? StartPaplay(string filePath, string? sink)
     {
         ProcessStartInfo psi = new("paplay") { UseShellExecute = false, CreateNoWindow = true };

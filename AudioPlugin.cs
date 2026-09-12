@@ -24,8 +24,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         Id = "audio",
         Name = "Audio",
-        Version = new Version(1, 7, 0),
-        SdkVersion = new Version(1, 16, 0),
+        Version = new Version(1, 9, 0),
+        SdkVersion = new Version(1, 17, 0),
         Author = "RadiatorTwo",
         Description = "Pick the active audio output/input device and adjust volume and mute from the device."
     };
@@ -33,6 +33,9 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     public override void Initialize(IPluginHost host)
     {
         if (!_audio.IsSupported) return;
+
+        // The Windows backend logs its own COM failures, so it needs the host logger.
+        if (_audio is WindowsAudioService windows) windows.Logger = host.Logger;
 
         _settings = host.Settings;
         _aliasStore = new AudioAliasStore(host.Settings);
@@ -47,6 +50,13 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             new AudioVolumeDownCommand(_audio),
             new AudioMuteToggleCommand(_audio),
             new AudioPlaySoundCommand(_audio, _soundLibrary, _playbackDevices, host),
+            new AudioSetVolumeCommand(_audio),
+            new AudioSetDefaultDeviceCommand(_audio),
+            new AudioAppVolumeUpCommand(_audio),
+            new AudioAppVolumeDownCommand(_audio),
+            new AudioAppMuteToggleCommand(_audio),
+            new AudioAppSetVolumeCommand(_audio),
+            new AudioMixerFolderCommand(_audio),
         ];
 
         _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings, _aliasStore);
@@ -58,6 +68,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         // Sounds are fire-and-forget, so an unloaded plugin could otherwise leave
         // a WASAPI stream or a paplay process behind.
         _audio.StopAllPlayback();
+        // The Windows backend holds a cached session device that COM only releases on demand.
+        if (_audio is IDisposable disposable) disposable.Dispose();
         base.Shutdown();
     }
 
@@ -94,6 +106,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         [
             new MenuNode { Name = "Select Output Device", CommandName = "Audio.OutputDevices" },
             new MenuNode { Name = "Select Input Device", CommandName = "Audio.InputDevices" },
+            new MenuNode { Name = "Mixer", CommandName = "Audio.Mixer" },
         ];
 
         if (outputs.Count > 0)
@@ -101,6 +114,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         if (inputs.Count > 0)
             rootChildren.Add(DevicesCategory("Input Devices", inputs, includeGroup));
 
+        rootChildren.Add(ApplicationsCategory(includeGroup));
         rootChildren.Add(SoundsCategory());
 
         IReadOnlyList<MenuNode> roots =
@@ -109,6 +123,52 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         ];
 
         return Task.FromResult(roots);
+    }
+
+    /// <summary>
+    /// "Applications" category. The listed apps are the ones playing audio right now — a
+    /// binding stores the process name, so it keeps working after that app restarts. The
+    /// foreground entry is always offered because it needs no running session to be useful.
+    /// </summary>
+    private MenuNode ApplicationsCategory(bool includeGroup)
+    {
+        List<MenuNode> children = [AppNode("Foreground App", AudioAppParameter.ForegroundAppId, includeGroup)];
+
+        foreach (AudioSessionInfo session in _audio.GetSessions(null))
+            children.Add(AppNode(session.DisplayName, session.AppId, includeGroup));
+
+        return new MenuNode { Name = "Applications", CommandName = string.Empty, Children = children };
+    }
+
+    private MenuNode AppNode(string label, string appId, bool includeGroup)
+    {
+        Dictionary<string, string> AppParam() => new(StringComparer.Ordinal)
+        {
+            [AudioAppParameter.AppIdName] = appId,
+        };
+
+        List<MenuNode> children = [];
+
+        if (includeGroup)
+        {
+            children.Add(new MenuNode
+            {
+                Name = "Volume Control",
+                RotaryGroup = new Dictionary<RotaryAction, MenuCommandRef>
+                {
+                    [RotaryAction.CounterClockwise] = new() { CommandName = "Audio.AppVolumeDown", Parameters = AppParam() },
+                    [RotaryAction.Clockwise] = new() { CommandName = "Audio.AppVolumeUp", Parameters = AppParam() },
+                    [RotaryAction.Press] = new() { CommandName = "Audio.AppMuteToggle", Parameters = AppParam() },
+                },
+            });
+        }
+
+        children.Add(new MenuNode { Name = "Volume Down", CommandName = "Audio.AppVolumeDown", Parameters = AppParam() });
+        children.Add(new MenuNode { Name = "Volume Up", CommandName = "Audio.AppVolumeUp", Parameters = AppParam() });
+        children.Add(new MenuNode { Name = "Mute", CommandName = "Audio.AppMuteToggle", Parameters = AppParam() });
+        children.Add(new MenuNode { Name = "Set Volume", CommandName = "Audio.AppSetVolume", Parameters = AppParam() });
+
+        return new MenuNode { Name = label, CommandName = string.Empty, Children = children };
     }
 
     /// <summary>
@@ -231,6 +291,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         children.Add(new MenuNode { Name = "Volume Down", CommandName = "Audio.VolumeDown", Parameters = DeviceParam() });
         children.Add(new MenuNode { Name = "Volume Up", CommandName = "Audio.VolumeUp", Parameters = DeviceParam() });
         children.Add(new MenuNode { Name = "Mute", CommandName = "Audio.MuteToggle", Parameters = DeviceParam() });
+        children.Add(new MenuNode { Name = "Set Volume", CommandName = "Audio.SetVolume", Parameters = DeviceParam() });
+        children.Add(new MenuNode { Name = "Set as Default", CommandName = "Audio.SetDefaultDevice", Parameters = DeviceParam() });
 
         return new MenuNode
         {
@@ -419,6 +481,13 @@ internal sealed class UnsupportedAudioService : IAudioService
         => NoopDisposable.Instance;
     public void PlayFile(string filePath, string? endpointId) { }
     public void StopAllPlayback() { }
+    public IReadOnlyList<AudioSessionInfo> GetSessions(string? endpointId) => [];
+    public float? GetSessionVolume(string? endpointId, string appId) => null;
+    public void SetSessionVolume(string? endpointId, string appId, float scalar01) { }
+    public bool? GetSessionMute(string? endpointId, string appId) => null;
+    public void SetSessionMute(string? endpointId, string appId, bool muted) { }
+    public string? GetForegroundAppId() => null;
+    public bool SetDefaultEndpoint(string endpointId) => false;
 
     private sealed class NoopDisposable : IDisposable
     {

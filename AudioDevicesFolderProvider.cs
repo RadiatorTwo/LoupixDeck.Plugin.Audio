@@ -48,7 +48,7 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
                     : PluginColor.FromRgb(0x20, 0x20, 0x40),
                 TextSize = 13,
                 Bold = capturedEp.IsDefault,
-                OpensFolder = new AudioDeviceControlFolderProvider(_audio, capturedEp, _aliasStore)
+                OpensFolder = new AudioDeviceControlFolderProvider(_audio, capturedEp, _kind, _aliasStore)
             });
             slot++;
         }

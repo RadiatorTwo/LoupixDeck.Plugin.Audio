@@ -17,6 +17,25 @@ volume and a mute toggle (the first rotary adjusts volume).
 device, assigned from the command menu (Audio → Output/Input Devices). The
 volume step is editable per assignment.
 
+`Audio.Mixer` — open a per-application mixer on the touch screen. Tap a tile
+to select an application, the first rotary then adjusts it and its press mutes.
+It lists the applications playing on **any** output device, not just the
+default one, so a virtual mixer that routes each application to a device of its
+own does not hide them. The Windows audio engine is left out, and the system
+sounds session is listed as "System Sounds".
+
+`Audio.AppVolumeUp` / `Audio.AppVolumeDown` / `Audio.AppMuteToggle` /
+`Audio.AppSetVolume` — act on one application, assigned from the command menu
+under Audio → Applications. A binding stores the process name, so it survives
+that application restarting. "Foreground App" follows the focused window on
+Windows; on Linux it does nothing, because focus detection there needs X11.
+
+`Audio.SetVolume` / `Audio.AppSetVolume` — set a device or an application to a
+fixed level in percent, editable per assignment.
+
+`Audio.SetDefaultDevice` — make one device the system default. On Linux the
+already-playing streams are moved across to it as well.
+
 `Audio.PlaySound` — play an audio file. Set a **sound folder** in the plugin
 settings; its files then appear in the command menu under Audio → Play Sound,
 with sub-folders as sub-menus. Every press starts its own playback, so

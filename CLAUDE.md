@@ -77,3 +77,50 @@ public CommandDescriptor Descriptor { get; } = new()
 - Die **Parameter-Namen** in `ParameterTemplate`, im `CommandParameter`-Schema und in den `MenuNode.Parameters`-Keys müssen exakt übereinstimmen (case-sensitive).
 - Im `IMenuContributor` als Wert immer die **stabile, eindeutige ID** (z. B. WASAPI-GUID, `sink:`-Name, Playlist-ID) verwenden, nie den Anzeigenamen — der Anzeigename gehört in `MenuNode.Name` und kann sich durch Aliase oder OS-Updates ändern, ohne dass bestehende Bindings brechen.
 - Funktionierende Vorlage: `LoupixDeck.Plugin.SpotifyPremium\Commands\Playlists\PlaylistCommands.cs` und `LibraryCommands.cs`.
+
+## Mixer und Default-Device: zwei Mechanismen, die man dem Code nicht ansieht
+
+- **`PolicyConfig.cs` kapselt eine undokumentierte COM-Schnittstelle.** Windows bietet keinen
+  unterstützten Weg, das Standard-Audiogerät zu wechseln; `IPolicyConfig` ist der Weg, den alle
+  Werkzeuge gehen. Die GUIDs sind seit Windows 7 stabil, aber nichts garantiert das für das
+  nächste Release. Deshalb liegt alles davon in genau einer Datei und **jeder Fehler bleibt
+  nicht-fatal** — `SetDefaultEndpoint` gibt `false` zurück, der Aufrufer macht nichts.
+- **Eine Anwendung wird über den Prozessnamen adressiert, nicht über die Session-ID.** Session-IDs
+  und PIDs ändern sich bei jedem Neustart der Anwendung und würden gespeicherte Button-Belegungen
+  über Nacht still unbrauchbar machen. Die `AppId` ist der Name der ausführbaren Datei,
+  kleingeschrieben und ohne Endung (`chrome`, `spotify`). Eine Aktion gilt damit für **alle**
+  Sessions dieses Prozesses, was bei einem Browser mit einer Session pro Tab auch das erwartete
+  Verhalten ist.
+- **Ohne `endpointId` werden ALLE aktiven Render-Endpoints durchlaufen, nicht nur das
+  Standardgerät.** WASAPI hängt Sessions am Gerät, und Anwendungen spielen nicht alle auf dem
+  Standardgerät: ein virtueller Mixer wie SteelSeries Sonar gibt jeder Anwendung ein eigenes
+  Gerät. Ein Mixer, der nur das Standardgerät abfragt, findet MPC-HC oder den Browser schlicht
+  nicht, obwohl sie hörbar laufen. Gemessen auf einem Sonar-System: 8 Endpoints, die gesuchte
+  Anwendung lag auf "Sonar - Media", das Standardgerät war "Sonar - Gaming". Ein explizit
+  übergebenes `endpointId` schränkt weiterhin auf genau dieses Gerät ein.
+- **Drei Caches in `WindowsAudioService`, alle gegen dieselbe NAudio-Eigenheit.** NAudio gibt
+  mehrere COM-Objekte nur über den GC frei, nie deterministisch. Ohne Cache klettert die
+  Handle-Zahl bei laufendem Mixer (Abfrage alle 750 ms) sichtbar:
+  - `AudioSessionManager` / `SessionCollection` haben kein `Dispose`. Pro Aufruf ein neues
+    `MMDevice` samt Manager kostete **202 Handles auf 200 Aufrufe**. Darum ein gecachtes Gerät
+    pro Endpoint plus `RefreshSessions()` — das erkennt neu gestartete Anwendungen trotzdem
+    (gemessen ~1 s).
+  - `EnumerateAudioEndPoints` verliert **pro Aufruf ein Handle je Endpoint**, unabhängig davon,
+    ob man die zurückgegebenen `MMDevice` disposed. Darum wird die Endpoint-Liste 5 Sekunden
+    lang wiederverwendet (`EndpointListLifetime`); ein neu angestecktes Gerät taucht entsprechend
+    binnen 5 s auf.
+  - `Process.GetProcessById` kostet ~2 ms pro PID. Bei ~30 Sessions über 8 Endpoints dominierte
+    das die Abfrage. Der Name kommt jetzt aus `QueryFullProcessImageName` (~20× billiger) mit dem
+    verwalteten Aufruf als Fallback, zusätzlich pro PID gecacht und aufgeräumt, sobald die
+    Session weg ist.
+
+  Zusammen: **2 Handles auf 2000 Abfragen, ~2,5 ms pro Abfrage über 8 Endpoints.** Ein Cache
+  wird verworfen, wenn das Gerät verschwindet oder die Enumeration fehlschlägt;
+  `WindowsAudioService` ist dafür `IDisposable` und wird vom Plugin beim Shutdown freigegeben.
+- **Zwei Sessions erscheinen nie als Anwendung.** `audiodg` ist die Windows-Audio-Engine und
+  taucht auf jedem Endpoint auf, durch den ein virtuelles Gerät schleift — Klempnerei, kein
+  Programm, das jemand leiser drehen will. Die System-Sounds-Session hat gar keinen eigenen
+  Prozess (PID 0, `Process.GetProcessById` liefert "Idle"); sie wird über
+  `IsSystemSoundsSession` erkannt und heißt `system` / "System Sounds". Anzeigenamen, die mit
+  `@` beginnen, sind nicht aufgelöste Ressourcen-Verweise wie
+  `@%SystemRoot%\System32\AudioSrv.Dll,-202` und werden durch die `AppId` ersetzt.

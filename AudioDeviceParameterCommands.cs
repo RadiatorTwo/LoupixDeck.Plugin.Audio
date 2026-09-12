@@ -49,6 +49,34 @@ internal static class AudioDeviceParameter
         }
     ];
 
+    public const string PercentName = "percent";
+
+    /// <summary>Default target level for the set-to-percent command, pre-filled in the flyout.</summary>
+    public const int DefaultPercent = 50;
+
+    /// <summary>Device id plus an absolute target level in percent.</summary>
+    public static IReadOnlyList<CommandParameter> VolumePercentParameters { get; } =
+    [
+        new CommandParameter(DeviceIdName, typeof(string)),
+        new CommandParameter(PercentName, typeof(int))
+        {
+            DefaultValue = DefaultPercent.ToString(CultureInfo.InvariantCulture)
+        }
+    ];
+
+    /// <summary>Resolves the absolute target level (parameter index 1, percent) as a 0..1 scalar.</summary>
+    public static float ResolvePercentScalar(CommandContext ctx)
+    {
+        string[]? p = ctx.Parameters;
+        int percent = DefaultPercent;
+        if (p != null && p.Length > 1 &&
+            int.TryParse(p[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
+        {
+            percent = Math.Clamp(parsed, 0, 100);
+        }
+        return percent / 100f;
+    }
+
     public static void ShowOverlay(CommandContext ctx, string text)
     {
         if (ctx.SourceIndex is not int rotaryIdx) return;
@@ -137,6 +165,35 @@ internal sealed class AudioMuteToggleCommand(IAudioService audio) : IPluginComma
         var muted = !audio.GetMute(id);
         audio.SetMute(id, muted);
         AudioDeviceParameter.ShowOverlay(ctx, muted ? "🔇" : $"🔊 {AudioDeviceParameter.FormatVolume(audio.GetVolume(id))}");
+        return Task.CompletedTask;
+    }
+}
+
+internal sealed class AudioSetVolumeCommand(IAudioService audio) : IPluginCommand
+{
+    public CommandDescriptor Descriptor { get; } = new()
+    {
+        CommandName = "Audio.SetVolume",
+        DisplayName = "Audio: Set Volume",
+        Group = "Audio",
+        Icon = "\U000F057E",
+        Description = "Set the device volume to a fixed level",
+        HiddenFromMenu = true,
+        ParameterTemplate = "({deviceId},{percent})",
+        Parameters = AudioDeviceParameter.VolumePercentParameters
+    };
+
+    public ButtonTargets SupportedTargets =>
+        ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
+
+    public Task Execute(CommandContext ctx)
+    {
+        string? id = AudioDeviceParameter.ResolveDeviceId(ctx);
+        if (id == null) return Task.CompletedTask;
+
+        float target = AudioDeviceParameter.ResolvePercentScalar(ctx);
+        audio.SetVolume(id, target);
+        AudioDeviceParameter.ShowOverlay(ctx, AudioDeviceParameter.FormatVolume(target));
         return Task.CompletedTask;
     }
 }
