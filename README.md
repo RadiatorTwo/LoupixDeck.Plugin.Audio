@@ -4,8 +4,12 @@ Audio integration plugin for [LoupixDeck](https://github.com/RadiatorTwo/LoupixD
 built against [LoupixDeck.PluginSdk](https://github.com/RadiatorTwo/LoupixDeck.PluginSdk).
 
 Windows via WASAPI (NAudio), Linux via `pactl` (PulseAudio / pipewire-pulse).
-Sound playback on Linux uses `paplay`, falling back to `ffplay` or `mpv` for
-formats libsndfile cannot decode (mp3, m4a).
+Sound playback on Linux uses `paplay`. Formats libsndfile cannot decode (mp3,
+m4a) are decoded by `ffmpeg` and piped into `paplay`, or played by `mpv`; plain
+`ffplay` is used only when no specific playback device is selected, because it
+offers no way to target one. Selecting a device therefore needs `ffmpeg` plus
+`paplay`, or `mpv` — with none of them present the sound is skipped rather than
+played on the wrong device.
 
 ## Commands
 
