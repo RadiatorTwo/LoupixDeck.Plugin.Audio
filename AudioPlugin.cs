@@ -50,6 +50,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             new AudioVolumeDownCommand(_audio),
             new AudioMuteToggleCommand(_audio),
             new AudioPlaySoundCommand(_audio, _soundLibrary, _playbackDevices, host),
+            new AudioStopSoundCommand(_audio, host),
             new AudioSetVolumeCommand(_audio),
             new AudioSetDefaultDeviceCommand(_audio),
             new AudioAppVolumeUpCommand(_audio),
@@ -116,6 +117,9 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
 
         rootChildren.Add(ApplicationsCategory(includeGroup));
         rootChildren.Add(SoundsCategory());
+        // A sibling of the sound tree rather than a child of it: stopping must stay
+        // reachable even when no sound folder is configured.
+        rootChildren.Add(new MenuNode { Name = "Stop Sounds", CommandName = "Audio.StopSounds" });
 
         IReadOnlyList<MenuNode> roots =
         [

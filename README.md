@@ -46,6 +46,10 @@ with sub-folders as sub-menus. Every press starts its own playback, so
 repeated presses overlap — unless **stop on second press** is enabled, where
 a press while the sound is still running stops it instead.
 
+`Audio.StopSounds` — stop every sound this plugin is currently playing. Works
+regardless of the **stop on second press** setting and affects only the
+plugin's own playback, not the audio of other applications.
+
 ## Settings
 
 - **Sound folder** — folder scanned for `.wav`, `.mp3`, `.flac`, `.m4a` and
