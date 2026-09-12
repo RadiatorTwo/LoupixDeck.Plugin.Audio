@@ -67,3 +67,39 @@ internal sealed class AudioPlaySoundCommand(
         return Task.CompletedTask;
     }
 }
+
+/// <summary>
+/// Stops every sound this plugin is currently playing, regardless of the
+/// "stop on second press" setting — that option toggles a single sound, this command is
+/// the panic button for all of them at once.
+/// </summary>
+internal sealed class AudioStopSoundCommand(IAudioService audio, IPluginHost host) : IPluginCommand
+{
+    public CommandDescriptor Descriptor { get; } = new()
+    {
+        CommandName = "Audio.StopSounds",
+        DisplayName = "Audio: Stop Sounds",
+        Group = "Audio",
+        Icon = "\U000F04DB",
+        Description = "Stop every sound started by Play Sound"
+    };
+
+    public ButtonTargets SupportedTargets =>
+        ButtonTargets.SimpleButton | ButtonTargets.TouchButton | ButtonTargets.RotaryEncoder;
+
+    public Task Execute(CommandContext ctx)
+    {
+        try
+        {
+            // Only this plugin's own playbacks are affected; audio of other applications
+            // is untouched. Nothing running makes this a no-op.
+            audio.StopAllPlayback();
+        }
+        catch (Exception ex)
+        {
+            host.Logger?.Error("Audio.StopSounds failed", ex);
+        }
+
+        return Task.CompletedTask;
+    }
+}
