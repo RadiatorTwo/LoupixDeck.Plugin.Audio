@@ -12,6 +12,7 @@ public sealed class AudioDeviceControlFolderProvider : FolderProviderBase
 
     private readonly IAudioService _audio;
     private readonly AudioEndpointInfo _endpoint;
+    private readonly AudioEndpointKind _kind;
     private readonly AudioAliasStore _aliasStore;
 
     private IDisposable? _subscription;
@@ -20,10 +21,12 @@ public sealed class AudioDeviceControlFolderProvider : FolderProviderBase
 
     private readonly Dictionary<int, RotaryOverride> _rotaries;
 
-    public AudioDeviceControlFolderProvider(IAudioService audio, AudioEndpointInfo endpoint, AudioAliasStore aliasStore)
+    public AudioDeviceControlFolderProvider(IAudioService audio, AudioEndpointInfo endpoint,
+        AudioEndpointKind kind, AudioAliasStore aliasStore)
     {
         _audio = audio;
         _endpoint = endpoint;
+        _kind = kind;
         _aliasStore = aliasStore;
 
         _rotaries = new Dictionary<int, RotaryOverride>
@@ -67,6 +70,7 @@ public sealed class AudioDeviceControlFolderProvider : FolderProviderBase
     public override IReadOnlyList<FolderEntry> BuildEntries()
     {
         var percent = (int)Math.Round(_currentVolume * 100f);
+        bool isDefault = IsCurrentDefault();
 
         return new[]
         {
@@ -87,9 +91,32 @@ public sealed class AudioDeviceControlFolderProvider : FolderProviderBase
                     : PluginColor.FromRgb(0x30, 0x30, 0x30),
                 TextSize = 16,
                 OnPress = () => { ToggleMute(); return Task.CompletedTask; }
+            },
+            new FolderEntry
+            {
+                SlotIndex = 2,
+                Text = isDefault ? "Is Default" : "Set Default",
+                BackColor = isDefault
+                    ? PluginColor.FromRgb(0x20, 0x60, 0x30)
+                    : PluginColor.FromRgb(0x30, 0x30, 0x30),
+                TextSize = 16,
+                OnPress = () =>
+                {
+                    if (!IsCurrentDefault()) _audio.SetDefaultEndpoint(_endpoint.Id);
+                    RaiseEntriesChanged();
+                    return Task.CompletedTask;
+                }
             }
         };
     }
+
+    /// <summary>
+    /// Live default check. The captured endpoint record's IsDefault is a snapshot taken
+    /// when the parent folder was built, so it goes stale the moment the default changes.
+    /// </summary>
+    private bool IsCurrentDefault() =>
+        _audio.GetEndpoints(_kind).Any(e =>
+            string.Equals(e.Id, _endpoint.Id, StringComparison.Ordinal) && e.IsDefault);
 
     private void AdjustVolume(float delta)
     {
