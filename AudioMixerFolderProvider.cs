@@ -1,3 +1,4 @@
+using System.Text;
 using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Audio;
@@ -18,6 +19,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
 
     private IReadOnlyList<AudioSessionInfo> _sessions = [];
     private string? _selectedAppId;
+    private string? _rendered;
     private Timer? _refresh;
 
     public AudioMixerFolderProvider(IAudioService audio)
@@ -40,6 +42,8 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
 
     public override void OnEnter()
     {
+        // Force the first frame: the folder may have been open before with other content.
+        _rendered = null;
         Reload();
         // The timer only lives while the folder is open, so a closed mixer costs nothing.
         _refresh = new Timer(_ => Reload(), null, RefreshInterval, RefreshInterval);
@@ -79,7 +83,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
                 OnPress = () =>
                 {
                     _selectedAppId = captured.AppId;
-                    RaiseEntriesChanged();
+                    RaiseIfChanged();
                     return Task.CompletedTask;
                 }
             });
@@ -114,7 +118,40 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
 
         _selectedAppId ??= _sessions.Count > 0 ? _sessions[0].AppId : null;
 
+        RaiseIfChanged();
+    }
+
+    /// <summary>
+    /// Announces new entries only when the tiles would actually look different. The host
+    /// repaints every slot of the folder on each change, so raising the event on every
+    /// timer tick would push a full redraw to the device more than once a second for
+    /// nothing — most ticks read back exactly what is already on screen.
+    /// </summary>
+    private void RaiseIfChanged()
+    {
+        string snapshot = DescribeEntries();
+        if (string.Equals(snapshot, _rendered, StringComparison.Ordinal)) return;
+
+        _rendered = snapshot;
         RaiseEntriesChanged();
+    }
+
+    /// <summary>Everything a tile is drawn from, so an unchanged snapshot means unchanged pixels.</summary>
+    private string DescribeEntries()
+    {
+        StringBuilder builder = new();
+        builder.Append(_selectedAppId).Append('|');
+
+        foreach (AudioSessionInfo session in _sessions)
+        {
+            builder.Append(session.AppId).Append(':')
+                .Append(session.DisplayName).Append(':')
+                // The tile shows whole percent, so a smaller change is invisible.
+                .Append((int)Math.Round(session.Volume * 100f)).Append(':')
+                .Append(session.Muted ? '1' : '0').Append('|');
+        }
+
+        return builder.ToString();
     }
 
     private void Adjust(float delta)
