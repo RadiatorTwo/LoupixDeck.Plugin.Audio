@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using LoupixDeck.PluginSdk;
 using NAudio.CoreAudioApi;
 using NAudio.CoreAudioApi.Interfaces;
 using NAudio.Wave;
@@ -5,10 +8,22 @@ using NAudio.Wave;
 namespace LoupixDeck.Plugin.Audio;
 
 /// <summary>Windows Core Audio implementation, used when the plugin runs on Windows.</summary>
-public sealed class WindowsAudioService : IAudioService
+public sealed class WindowsAudioService : IAudioService, IDisposable
 {
     private readonly List<Playback> _playbacks = [];
     private readonly Lock _playbackLock = new();
+
+    private readonly HashSet<string> _loggedFailures = new(StringComparer.Ordinal);
+    private readonly Lock _logLock = new();
+
+    // Cached session device — see AcquireSessionManager for why it is not built per call.
+    private readonly Lock _sessionLock = new();
+    private MMDevice? _sessionDevice;
+    private AudioSessionManager? _sessionManager;
+    private string? _sessionDeviceId;
+
+    /// <summary>Logger handed in by the plugin after construction; null until then.</summary>
+    public IPluginLogger? Logger { get; set; }
 
     public bool IsSupported => true;
 
@@ -152,13 +167,285 @@ public sealed class WindowsAudioService : IAudioService
         foreach (Playback playback in running) playback.Dispose();
     }
 
-    public IReadOnlyList<AudioSessionInfo> GetSessions(string? endpointId) => throw new NotImplementedException();
-    public float? GetSessionVolume(string? endpointId, string appId) => throw new NotImplementedException();
-    public void SetSessionVolume(string? endpointId, string appId, float scalar01) => throw new NotImplementedException();
-    public bool? GetSessionMute(string? endpointId, string appId) => throw new NotImplementedException();
-    public void SetSessionMute(string? endpointId, string appId, bool muted) => throw new NotImplementedException();
-    public string? GetForegroundAppId() => throw new NotImplementedException();
-    public bool SetDefaultEndpoint(string endpointId) => throw new NotImplementedException();
+    public IReadOnlyList<AudioSessionInfo> GetSessions(string? endpointId)
+    {
+        int ownPid = Environment.ProcessId;
+        Dictionary<string, AudioSessionInfo> byApp = new(StringComparer.Ordinal);
+
+        ForEachSession(endpointId, (session, appId, displayName) =>
+        {
+            if (session.GetProcessID == ownPid) return;
+
+            float volume = session.SimpleAudioVolume.Volume;
+            bool muted = session.SimpleAudioVolume.Mute;
+
+            // Several sessions per app: keep the loudest, and count the app as muted
+            // only when every one of its sessions is.
+            if (byApp.TryGetValue(appId, out AudioSessionInfo? existing))
+            {
+                byApp[appId] = existing with
+                {
+                    Volume = Math.Max(existing.Volume, volume),
+                    Muted = existing.Muted && muted
+                };
+            }
+            else
+            {
+                byApp[appId] = new AudioSessionInfo(appId, displayName, volume, muted);
+            }
+        });
+
+        return [.. byApp.Values.OrderBy(s => s.DisplayName, StringComparer.CurrentCultureIgnoreCase)];
+    }
+
+    public float? GetSessionVolume(string? endpointId, string appId)
+    {
+        float? result = null;
+        ForEachSession(endpointId, (session, id, _) =>
+        {
+            if (!string.Equals(id, appId, StringComparison.Ordinal)) return;
+            float volume = session.SimpleAudioVolume.Volume;
+            result = result is { } current ? Math.Max(current, volume) : volume;
+        });
+        return result;
+    }
+
+    public void SetSessionVolume(string? endpointId, string appId, float scalar01)
+    {
+        float clamped = Math.Clamp(scalar01, 0f, 1f);
+        ForEachSession(endpointId, (session, id, _) =>
+        {
+            if (string.Equals(id, appId, StringComparison.Ordinal))
+                session.SimpleAudioVolume.Volume = clamped;
+        });
+    }
+
+    public bool? GetSessionMute(string? endpointId, string appId)
+    {
+        bool? result = null;
+        ForEachSession(endpointId, (session, id, _) =>
+        {
+            if (!string.Equals(id, appId, StringComparison.Ordinal)) return;
+            bool muted = session.SimpleAudioVolume.Mute;
+            result = result is { } current ? current && muted : muted;
+        });
+        return result;
+    }
+
+    public void SetSessionMute(string? endpointId, string appId, bool muted)
+    {
+        ForEachSession(endpointId, (session, id, _) =>
+        {
+            if (string.Equals(id, appId, StringComparison.Ordinal))
+                session.SimpleAudioVolume.Mute = muted;
+        });
+    }
+
+    public string? GetForegroundAppId()
+    {
+        try
+        {
+            IntPtr window = NativeMethods.GetForegroundWindow();
+            if (window == IntPtr.Zero) return null;
+
+            _ = NativeMethods.GetWindowThreadProcessId(window, out uint pid);
+            if (pid == 0) return null;
+
+            using Process process = Process.GetProcessById((int)pid);
+            return process.ProcessName.ToLowerInvariant();
+        }
+        catch (Exception ex)
+        {
+            LogOnce("foreground-app", ex);
+            return null;
+        }
+    }
+
+    public bool SetDefaultEndpoint(string endpointId)
+    {
+        if (!OperatingSystem.IsWindows()) return false;
+
+        try
+        {
+            return PolicyConfig.SetDefaultEndpoint(endpointId);
+        }
+        catch (Exception ex)
+        {
+            LogOnce("set-default-endpoint", ex);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Walks the active sessions of one render endpoint (the current default when
+    /// <paramref name="endpointId"/> is null), handing each one to <paramref name="visit"/>
+    /// together with its AppId and display name. The session objects are owned by the
+    /// collection and must not be used after this method returns.
+    /// </summary>
+    private void ForEachSession(string? endpointId,
+        Action<AudioSessionControl, string, string> visit)
+    {
+        lock (_sessionLock)
+        {
+            AudioSessionManager? manager = AcquireSessionManager(endpointId);
+            if (manager == null) return;
+
+            try
+            {
+                // Picks up the applications that started playing since the last call.
+                manager.RefreshSessions();
+
+                SessionCollection sessions = manager.Sessions;
+                for (int i = 0; i < sessions.Count; i++)
+                {
+                    AudioSessionControl session = sessions[i];
+                    try
+                    {
+                        if (session.State == AudioSessionState.AudioSessionStateExpired) continue;
+
+                        string appId = ResolveAppId(session);
+                        if (appId.Length == 0) continue;
+
+                        visit(session, appId, ResolveDisplayName(session, appId));
+                    }
+                    catch (Exception ex)
+                    {
+                        LogOnce("session-visit", ex);
+                    }
+                    finally
+                    {
+                        session.Dispose();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogOnce("session-enumerate", ex);
+                // The cached device is the likely culprit (unplugged, or the driver
+                // restarted), so drop it and let the next call build a fresh one.
+                ReleaseSessionDevice();
+            }
+        }
+    }
+
+    /// <summary>
+    /// The session manager of the wanted endpoint, reusing the cached one while it still
+    /// points at the same device. NAudio offers no way to release an AudioSessionManager
+    /// deterministically, so building a new one per call leaves a COM wrapper behind for
+    /// the garbage collector — with the mixer polling every 750 ms that shows up as a
+    /// steadily climbing handle count.
+    /// </summary>
+    private AudioSessionManager? AcquireSessionManager(string? endpointId)
+    {
+        string? wantedId = ResolveEndpointId(endpointId);
+        if (wantedId == null) return null;
+
+        if (_sessionManager != null && string.Equals(_sessionDeviceId, wantedId, StringComparison.Ordinal))
+            return _sessionManager;
+
+        ReleaseSessionDevice();
+
+        try
+        {
+            using MMDeviceEnumerator enumerator = new();
+            MMDevice device = enumerator.GetDevice(wantedId);
+            _sessionDevice = device;
+            _sessionDeviceId = wantedId;
+            _sessionManager = device.AudioSessionManager;
+            return _sessionManager;
+        }
+        catch (Exception ex)
+        {
+            LogOnce("session-device", ex);
+            ReleaseSessionDevice();
+            return null;
+        }
+    }
+
+    /// <summary>Id of the wanted render endpoint, resolving null to the current default.</summary>
+    private string? ResolveEndpointId(string? endpointId)
+    {
+        if (!string.IsNullOrWhiteSpace(endpointId)) return endpointId;
+
+        try
+        {
+            using MMDeviceEnumerator enumerator = new();
+            using MMDevice device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+            return device.ID;
+        }
+        catch (Exception ex)
+        {
+            LogOnce("default-endpoint", ex);
+            return null;
+        }
+    }
+
+    private void ReleaseSessionDevice()
+    {
+        // The manager is owned by the device and has no Dispose of its own.
+        _sessionManager = null;
+        _sessionDevice?.Dispose();
+        _sessionDevice = null;
+        _sessionDeviceId = null;
+    }
+
+    /// <summary>Releases the cached session device. Called by the plugin on shutdown.</summary>
+    public void Dispose()
+    {
+        lock (_sessionLock) ReleaseSessionDevice();
+    }
+
+    /// <summary>Process executable name, lower-cased, without extension — see AudioSessionInfo.</summary>
+    private static string ResolveAppId(AudioSessionControl session)
+    {
+        try
+        {
+            using Process process = Process.GetProcessById((int)session.GetProcessID);
+            return process.ProcessName.ToLowerInvariant();
+        }
+        catch (Exception)
+        {
+            // The process died between enumeration and the lookup — nothing to control.
+            return string.Empty;
+        }
+    }
+
+    private static string ResolveDisplayName(AudioSessionControl session, string appId)
+    {
+        try
+        {
+            string name = session.DisplayName;
+            if (!string.IsNullOrWhiteSpace(name)) return name;
+        }
+        catch (Exception)
+        {
+            // Some sessions expose no display name; the AppId is the better fallback.
+        }
+        return appId;
+    }
+
+    /// <summary>
+    /// Logs one failure per operation for the lifetime of the service. Session enumeration
+    /// runs on a repeating timer while the mixer folder is open, so an unlogged-once
+    /// failure would flood the log at several lines per second.
+    /// </summary>
+    private void LogOnce(string operation, Exception ex)
+    {
+        lock (_logLock)
+        {
+            if (!_loggedFailures.Add(operation)) return;
+        }
+        Logger?.Warn($"Audio: {operation} failed: {ex.Message}");
+    }
+
+    private static class NativeMethods
+    {
+        [DllImport("user32.dll", ExactSpelling = true)]
+        public static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll", ExactSpelling = true)]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+    }
 
     private void OnPlaybackFinished(Playback playback)
     {

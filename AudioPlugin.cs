@@ -34,6 +34,9 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         if (!_audio.IsSupported) return;
 
+        // The Windows backend logs its own COM failures, so it needs the host logger.
+        if (_audio is WindowsAudioService windows) windows.Logger = host.Logger;
+
         _settings = host.Settings;
         _aliasStore = new AudioAliasStore(host.Settings);
         _soundLibrary = new SoundLibrary(host.Settings);
@@ -58,6 +61,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         // Sounds are fire-and-forget, so an unloaded plugin could otherwise leave
         // a WASAPI stream or a paplay process behind.
         _audio.StopAllPlayback();
+        // The Windows backend holds a cached session device that COM only releases on demand.
+        if (_audio is IDisposable disposable) disposable.Dispose();
         base.Shutdown();
     }
 
