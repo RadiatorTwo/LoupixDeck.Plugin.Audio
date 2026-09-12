@@ -19,6 +19,10 @@ volume step is editable per assignment.
 
 `Audio.Mixer` — open a per-application mixer on the touch screen. Tap a tile
 to select an application, the first rotary then adjusts it and its press mutes.
+It lists the applications playing on **any** output device, not just the
+default one, so a virtual mixer that routes each application to a device of its
+own does not hide them. The Windows audio engine is left out, and the system
+sounds session is listed as "System Sounds".
 
 `Audio.AppVolumeUp` / `Audio.AppVolumeDown` / `Audio.AppMuteToggle` /
 `Audio.AppSetVolume` — act on one application, assigned from the command menu
