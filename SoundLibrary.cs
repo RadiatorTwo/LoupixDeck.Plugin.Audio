@@ -25,6 +25,9 @@ public sealed class SoundLibrary(IPluginSettings settings)
 {
     internal const string FolderKey = "soundFolder";
 
+    /// <summary>Settings key of the "stop on second press" toggle.</summary>
+    internal const string StopOnSecondPressKey = "soundStopOnSecondPress";
+
     /// <summary>
     /// Extensions offered in the menu. Platform-dependent on purpose: Windows decodes via
     /// Media Foundation, which has no Vorbis support, so <c>.ogg</c> would only fail at
@@ -38,6 +41,13 @@ public sealed class SoundLibrary(IPluginSettings settings)
     /// <summary>Path comparison follows the platform: Windows is case-insensitive, Linux is not.</summary>
     private static StringComparison PathComparison =>
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    /// <summary>
+    /// Whether pressing a sound button again stops that sound instead of starting it a
+    /// second time. Absent from an older settings file, which reads as false — the
+    /// overlapping behaviour the plugin has always had.
+    /// </summary>
+    public bool StopOnSecondPress => settings.Get<bool>(StopOnSecondPressKey);
 
     /// <summary>The raw folder setting as entered by the user, or null when unset.</summary>
     public string? ConfiguredFolder

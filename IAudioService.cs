@@ -36,6 +36,14 @@ public interface IAudioService
     void StopAllPlayback();
 
     /// <summary>
+    /// Stops every running playback of <paramref name="filePath"/> and reports whether any
+    /// was running. The running playbacks are the toggle state of "stop on second press":
+    /// a sound that ended on its own has already left the list, so the next press starts it
+    /// again instead of being swallowed as a stop.
+    /// </summary>
+    bool StopFile(string filePath);
+
+    /// <summary>
     /// Live mixer sessions of the given render endpoint, one entry per distinct
     /// application. Pass null to use the current default output. Sessions belonging to
     /// the host process itself are excluded. Returns an empty list when unsupported.
