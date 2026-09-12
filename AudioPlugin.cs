@@ -24,8 +24,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         Id = "audio",
         Name = "Audio",
-        Version = new Version(1, 7, 0),
-        SdkVersion = new Version(1, 16, 0),
+        Version = new Version(1, 8, 0),
+        SdkVersion = new Version(1, 17, 0),
         Author = "RadiatorTwo",
         Description = "Pick the active audio output/input device and adjust volume and mute from the device."
     };

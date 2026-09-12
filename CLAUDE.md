@@ -77,3 +77,24 @@ public CommandDescriptor Descriptor { get; } = new()
 - Die **Parameter-Namen** in `ParameterTemplate`, im `CommandParameter`-Schema und in den `MenuNode.Parameters`-Keys müssen exakt übereinstimmen (case-sensitive).
 - Im `IMenuContributor` als Wert immer die **stabile, eindeutige ID** (z. B. WASAPI-GUID, `sink:`-Name, Playlist-ID) verwenden, nie den Anzeigenamen — der Anzeigename gehört in `MenuNode.Name` und kann sich durch Aliase oder OS-Updates ändern, ohne dass bestehende Bindings brechen.
 - Funktionierende Vorlage: `LoupixDeck.Plugin.SpotifyPremium\Commands\Playlists\PlaylistCommands.cs` und `LibraryCommands.cs`.
+
+## Mixer und Default-Device: zwei Mechanismen, die man dem Code nicht ansieht
+
+- **`PolicyConfig.cs` kapselt eine undokumentierte COM-Schnittstelle.** Windows bietet keinen
+  unterstützten Weg, das Standard-Audiogerät zu wechseln; `IPolicyConfig` ist der Weg, den alle
+  Werkzeuge gehen. Die GUIDs sind seit Windows 7 stabil, aber nichts garantiert das für das
+  nächste Release. Deshalb liegt alles davon in genau einer Datei und **jeder Fehler bleibt
+  nicht-fatal** — `SetDefaultEndpoint` gibt `false` zurück, der Aufrufer macht nichts.
+- **Eine Anwendung wird über den Prozessnamen adressiert, nicht über die Session-ID.** Session-IDs
+  und PIDs ändern sich bei jedem Neustart der Anwendung und würden gespeicherte Button-Belegungen
+  über Nacht still unbrauchbar machen. Die `AppId` ist der Name der ausführbaren Datei,
+  kleingeschrieben und ohne Endung (`chrome`, `spotify`). Eine Aktion gilt damit für **alle**
+  Sessions dieses Prozesses, was bei einem Browser mit einer Session pro Tab auch das erwartete
+  Verhalten ist.
+- **Der Session-Device-Cache in `WindowsAudioService` ist Absicht.** NAudio bietet weder für
+  `AudioSessionManager` noch für `SessionCollection` ein `Dispose`. Wird pro Aufruf ein neues
+  `MMDevice` samt Manager gebaut, bleibt pro Abfrage ein COM-Wrapper für den GC liegen — gemessen
+  202 Handles auf 200 Aufrufe. Mit zwischengespeichertem Gerät und `RefreshSessions()` sind es
+  2 Handles auf 800 Aufrufe. Der Cache wird verworfen, wenn sich das Zielgerät ändert oder die
+  Enumeration fehlschlägt; `WindowsAudioService` ist dafür `IDisposable` und wird vom Plugin beim
+  Shutdown freigegeben.
