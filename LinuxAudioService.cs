@@ -15,7 +15,7 @@ public sealed class LinuxAudioService : IAudioService
     private static readonly Lazy<bool> HasFfplay = new(() => DetectTool("ffplay", "-version"));
     private static readonly Lazy<bool> HasMpv = new(() => DetectTool("mpv", "--version"));
 
-    private readonly List<Process> _playbacks = [];
+    private readonly List<Playback> _playbacks = [];
     private readonly Lock _playbackLock = new();
 
     public bool IsSupported => HasPactl.Value;
@@ -142,14 +142,15 @@ public sealed class LinuxAudioService : IAudioService
             ?? throw new InvalidOperationException(
                 $"No player available for '{filePath}'. Install pulseaudio-utils (paplay), ffmpeg (ffplay) or mpv.");
 
-        lock (_playbackLock) _playbacks.Add(process);
+        Playback playback = new(process, filePath);
+        lock (_playbackLock) _playbacks.Add(playback);
 
         // Reap the entry once the sound ends, without blocking the caller. Order matters:
         // the handler is attached first, and EnableRaisingEvents also fires for a process
         // that has already exited — so the entry cannot leak.
         process.Exited += (_, _) =>
         {
-            lock (_playbackLock) _playbacks.Remove(process);
+            lock (_playbackLock) _playbacks.Remove(playback);
             process.Dispose();
         };
         process.EnableRaisingEvents = true;
@@ -157,19 +158,40 @@ public sealed class LinuxAudioService : IAudioService
 
     public void StopAllPlayback()
     {
-        Process[] running;
+        Playback[] running;
         lock (_playbackLock)
         {
             running = [.. _playbacks];
             _playbacks.Clear();
         }
 
-        foreach (Process process in running)
+        foreach (Playback playback in running) Kill(playback);
+    }
+
+    public bool StopFile(string filePath)
+    {
+        Playback[] matching;
+        lock (_playbackLock)
         {
-            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
-            catch { /* already gone */ }
-            process.Dispose();
+            matching = [.. _playbacks.Where(p =>
+                string.Equals(p.FilePath, filePath, StringComparison.Ordinal))];
+            foreach (Playback playback in matching) _playbacks.Remove(playback);
         }
+
+        foreach (Playback playback in matching) Kill(playback);
+        return matching.Length > 0;
+    }
+
+    /// <summary>The player process of one running sound, and the file it was started with.</summary>
+    private readonly record struct Playback(Process Process, string FilePath);
+
+    private static void Kill(Playback playback)
+    {
+        // The decoders spawn no children, but paplay under a wrapper might — killing the
+        // tree keeps a stray child from holding the sink open.
+        try { if (!playback.Process.HasExited) playback.Process.Kill(entireProcessTree: true); }
+        catch { /* already gone */ }
+        playback.Process.Dispose();
     }
 
     /// <summary>

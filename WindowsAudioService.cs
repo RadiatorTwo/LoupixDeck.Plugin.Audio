@@ -191,6 +191,22 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
         foreach (Playback playback in running) playback.Dispose();
     }
 
+    public bool StopFile(string filePath)
+    {
+        Playback[] matching;
+        lock (_playbackLock)
+        {
+            matching = [.. _playbacks.Where(p =>
+                string.Equals(p.FilePath, filePath, StringComparison.OrdinalIgnoreCase))];
+            foreach (Playback playback in matching) _playbacks.Remove(playback);
+        }
+
+        // Disposing raises PlaybackStopped, so OnPlaybackFinished runs for an entry that is
+        // already gone from the list — a no-op Remove, and Dispose guards against running twice.
+        foreach (Playback playback in matching) playback.Dispose();
+        return matching.Length > 0;
+    }
+
     public IReadOnlyList<AudioSessionInfo> GetSessions(string? endpointId)
     {
         int ownPid = Environment.ProcessId;
@@ -595,8 +611,12 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
         private IDisposable? _resampler;
         private int _disposed;
 
+        /// <summary>The file this playback was started with; empty until <see cref="Start"/>.</summary>
+        public string FilePath { get; private set; } = string.Empty;
+
         public void Start(string filePath, Action<Playback> onFinished)
         {
+            FilePath = filePath;
             _reader = new AudioFileReader(filePath);
 
             // useEventSync: false — the non-event-driven path runs its own thread and needs

@@ -4,7 +4,8 @@ namespace LoupixDeck.Plugin.Audio;
 
 /// <summary>
 /// Plays the audio file assigned to the button on the globally configured playback
-/// device. Each press starts its own playback, so presses overlap.
+/// device. Each press starts its own playback, so presses overlap — unless "stop on
+/// second press" is enabled, where a press while the sound runs stops it instead.
 /// </summary>
 internal sealed class AudioPlaySoundCommand(
     IAudioService audio,
@@ -51,6 +52,10 @@ internal sealed class AudioPlaySoundCommand(
                     "Check the sound folder in the plugin settings.");
                 return Task.CompletedTask;
             }
+
+            // The running playbacks are the toggle state: once the sound has ended on its
+            // own there is nothing to stop, and the press starts it again.
+            if (library.StopOnSecondPress && audio.StopFile(path)) return Task.CompletedTask;
 
             audio.PlayFile(path, playbackDevices.SelectedId);
         }

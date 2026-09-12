@@ -39,12 +39,17 @@ already-playing streams are moved across to it as well.
 `Audio.PlaySound` — play an audio file. Set a **sound folder** in the plugin
 settings; its files then appear in the command menu under Audio → Play Sound,
 with sub-folders as sub-menus. Every press starts its own playback, so
-repeated presses overlap.
+repeated presses overlap — unless **stop on second press** is enabled, where
+a press while the sound is still running stops it instead.
 
 ## Settings
 
 - **Sound folder** — folder scanned for `.wav`, `.mp3`, `.flac`, `.m4a` and
   `.aiff` files (`.ogg` on Linux only — Windows has no Vorbis decoder).
+- **Stop on second press** — off by default. When on, pressing a sound button
+  again stops that sound rather than layering a second playback on top. A sound
+  that already ended on its own simply starts again. Buttons sharing the same
+  file share the toggle.
 - **Playback device** — one toggle per output device; enable exactly one to
   route `Audio.PlaySound` there. With none enabled the system default is used.
   A selected device that is currently unplugged keeps its selection and stays

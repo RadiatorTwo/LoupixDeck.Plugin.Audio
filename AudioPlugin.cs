@@ -414,6 +414,15 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
                           + "(.ogg on Linux only). Sub-folders become sub-menus.",
             DefaultValue = string.Empty
         });
+        list.Add(new PluginSettingDescriptor
+        {
+            Key = SoundLibrary.StopOnSecondPressKey,
+            Label = "Stop on second press",
+            Kind = PluginSettingKind.Toggle,
+            Description = "Pressing the button again stops that sound instead of starting it "
+                          + "a second time. Off: presses overlap.",
+            DefaultValue = false
+        });
 
         list.Add(new PluginSettingDescriptor
         {
@@ -481,6 +490,7 @@ internal sealed class UnsupportedAudioService : IAudioService
         => NoopDisposable.Instance;
     public void PlayFile(string filePath, string? endpointId) { }
     public void StopAllPlayback() { }
+    public bool StopFile(string filePath) => false;
     public IReadOnlyList<AudioSessionInfo> GetSessions(string? endpointId) => [];
     public float? GetSessionVolume(string? endpointId, string appId) => null;
     public void SetSessionVolume(string? endpointId, string appId, float scalar01) { }
