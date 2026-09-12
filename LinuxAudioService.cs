@@ -172,6 +172,14 @@ public sealed class LinuxAudioService : IAudioService
         }
     }
 
+    public IReadOnlyList<AudioSessionInfo> GetSessions(string? endpointId) => throw new NotImplementedException();
+    public float? GetSessionVolume(string? endpointId, string appId) => throw new NotImplementedException();
+    public void SetSessionVolume(string? endpointId, string appId, float scalar01) => throw new NotImplementedException();
+    public bool? GetSessionMute(string? endpointId, string appId) => throw new NotImplementedException();
+    public void SetSessionMute(string? endpointId, string appId, bool muted) => throw new NotImplementedException();
+    public string? GetForegroundAppId() => throw new NotImplementedException();
+    public bool SetDefaultEndpoint(string endpointId) => throw new NotImplementedException();
+
     private static Process? StartPaplay(string filePath, string? sink)
     {
         ProcessStartInfo psi = new("paplay") { UseShellExecute = false, CreateNoWindow = true };

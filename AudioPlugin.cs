@@ -419,6 +419,13 @@ internal sealed class UnsupportedAudioService : IAudioService
         => NoopDisposable.Instance;
     public void PlayFile(string filePath, string? endpointId) { }
     public void StopAllPlayback() { }
+    public IReadOnlyList<AudioSessionInfo> GetSessions(string? endpointId) => [];
+    public float? GetSessionVolume(string? endpointId, string appId) => null;
+    public void SetSessionVolume(string? endpointId, string appId, float scalar01) { }
+    public bool? GetSessionMute(string? endpointId, string appId) => null;
+    public void SetSessionMute(string? endpointId, string appId, bool muted) { }
+    public string? GetForegroundAppId() => null;
+    public bool SetDefaultEndpoint(string endpointId) => false;
 
     private sealed class NoopDisposable : IDisposable
     {

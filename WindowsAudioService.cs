@@ -152,6 +152,14 @@ public sealed class WindowsAudioService : IAudioService
         foreach (Playback playback in running) playback.Dispose();
     }
 
+    public IReadOnlyList<AudioSessionInfo> GetSessions(string? endpointId) => throw new NotImplementedException();
+    public float? GetSessionVolume(string? endpointId, string appId) => throw new NotImplementedException();
+    public void SetSessionVolume(string? endpointId, string appId, float scalar01) => throw new NotImplementedException();
+    public bool? GetSessionMute(string? endpointId, string appId) => throw new NotImplementedException();
+    public void SetSessionMute(string? endpointId, string appId, bool muted) => throw new NotImplementedException();
+    public string? GetForegroundAppId() => throw new NotImplementedException();
+    public bool SetDefaultEndpoint(string endpointId) => throw new NotImplementedException();
+
     private void OnPlaybackFinished(Playback playback)
     {
         lock (_playbackLock) _playbacks.Remove(playback);
