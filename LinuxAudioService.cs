@@ -333,11 +333,15 @@ public sealed class LinuxAudioService : IAudioService
     }
 
     /// <summary>
-    /// ffplay/mpv for the formats paplay cannot decode. Both are routed to the chosen sink
-    /// via PULSE_SINK, which the PulseAudio and pipewire-pulse client libraries honour.
+    /// ffplay/mpv for the formats paplay cannot decode. Both are pointed at the chosen
+    /// sink explicitly: PULSE_SINK alone is not enough, because under PipeWire both
+    /// players pick their native backend, which never looks at that variable and plays
+    /// on the default device instead.
     /// </summary>
     private static Process? StartDecoder(string filePath, string? sink)
     {
+        bool hasSink = !string.IsNullOrEmpty(sink);
+
         if (HasFfplay.Value)
         {
             ProcessStartInfo psi = new("ffplay") { UseShellExecute = false, CreateNoWindow = true };
@@ -346,7 +350,14 @@ public sealed class LinuxAudioService : IAudioService
             psi.ArgumentList.Add("-loglevel");
             psi.ArgumentList.Add("quiet");
             psi.ArgumentList.Add(filePath);
-            if (!string.IsNullOrEmpty(sink)) psi.Environment["PULSE_SINK"] = sink;
+            if (hasSink)
+            {
+                // ffplay outputs through SDL, so the sink is chosen by forcing SDL onto the
+                // PulseAudio driver (pipewire-pulse serves it as well) and letting libpulse
+                // resolve PULSE_SINK for the stream.
+                psi.Environment["SDL_AUDIODRIVER"] = "pulseaudio";
+                psi.Environment["PULSE_SINK"] = sink!;
+            }
 
             try { return Process.Start(psi); }
             catch { /* fall through to mpv */ }
@@ -357,8 +368,13 @@ public sealed class LinuxAudioService : IAudioService
             ProcessStartInfo psi = new("mpv") { UseShellExecute = false, CreateNoWindow = true };
             psi.ArgumentList.Add("--no-video");
             psi.ArgumentList.Add("--really-quiet");
+            if (hasSink)
+            {
+                // "pulse/<sink>" selects mpv's PulseAudio output plus the device, instead of
+                // its default (pipewire) output which ignores PULSE_SINK.
+                psi.ArgumentList.Add($"--audio-device=pulse/{sink}");
+            }
             psi.ArgumentList.Add(filePath);
-            if (!string.IsNullOrEmpty(sink)) psi.Environment["PULSE_SINK"] = sink;
 
             try { return Process.Start(psi); }
             catch { return null; }
