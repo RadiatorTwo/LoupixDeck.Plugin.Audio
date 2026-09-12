@@ -48,3 +48,24 @@ internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasSto
         return Task.CompletedTask;
     }
 }
+
+/// <summary>Opens the per-application mixer folder.</summary>
+internal sealed class AudioMixerFolderCommand(IAudioService audio) : IPluginCommand
+{
+    public CommandDescriptor Descriptor { get; } = new()
+    {
+        CommandName = "Audio.Mixer",
+        DisplayName = "Audio: Mixer",
+        Group = "Audio",
+        Icon = "\U000F057E",
+        Description = "Open the per-application volume mixer"
+    };
+
+    public ButtonTargets SupportedTargets => ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
+
+    public Task Execute(CommandContext ctx)
+    {
+        ctx.Host.OpenFolder(new AudioMixerFolderProvider(audio));
+        return Task.CompletedTask;
+    }
+}

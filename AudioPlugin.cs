@@ -56,6 +56,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             new AudioAppVolumeDownCommand(_audio),
             new AudioAppMuteToggleCommand(_audio),
             new AudioAppSetVolumeCommand(_audio),
+            new AudioMixerFolderCommand(_audio),
         ];
 
         _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings, _aliasStore);
@@ -105,6 +106,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         [
             new MenuNode { Name = "Select Output Device", CommandName = "Audio.OutputDevices" },
             new MenuNode { Name = "Select Input Device", CommandName = "Audio.InputDevices" },
+            new MenuNode { Name = "Mixer", CommandName = "Audio.Mixer" },
         ];
 
         if (outputs.Count > 0)
