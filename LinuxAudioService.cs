@@ -14,6 +14,7 @@ public sealed class LinuxAudioService : IAudioService
     private static readonly Lazy<bool> HasPaplay = new(() => DetectTool("paplay", "--version"));
     private static readonly Lazy<bool> HasFfplay = new(() => DetectTool("ffplay", "-version"));
     private static readonly Lazy<bool> HasMpv = new(() => DetectTool("mpv", "--version"));
+    private static readonly Lazy<bool> HasFfmpeg = new(() => DetectTool("ffmpeg", "-version"));
 
     private readonly List<Playback> _playbacks = [];
     private readonly Lock _playbackLock = new();
@@ -139,8 +140,10 @@ public sealed class LinuxAudioService : IAudioService
         Process process =
             (!needsDecoder && HasPaplay.Value ? StartPaplay(filePath, sink) : null)
             ?? StartDecoder(filePath, sink)
-            ?? throw new InvalidOperationException(
-                $"No player available for '{filePath}'. Install pulseaudio-utils (paplay), ffmpeg (ffplay) or mpv.");
+            ?? throw new InvalidOperationException(sink == null
+                ? $"No player available for '{filePath}'. Install pulseaudio-utils (paplay), ffmpeg (ffplay) or mpv."
+                : $"No player able to target the device '{sink}' for '{filePath}'. "
+                  + "Install mpv, or ffmpeg together with pulseaudio-utils (paplay).");
 
         Playback playback = new(process, filePath);
         lock (_playbackLock) _playbacks.Add(playback);
@@ -355,55 +358,82 @@ public sealed class LinuxAudioService : IAudioService
     }
 
     /// <summary>
-    /// ffplay/mpv for the formats paplay cannot decode. Both are pointed at the chosen
-    /// sink explicitly: PULSE_SINK alone is not enough, because under PipeWire both
-    /// players pick their native backend, which never looks at that variable and plays
-    /// on the default device instead.
+    /// Plays the formats paplay cannot decode. When a device is requested, only players
+    /// that take it as an explicit argument are used — never PULSE_SINK: newer SDL builds
+    /// (and therefore ffplay) ask the server for the default sink and pass it to libpulse
+    /// themselves, which overrides that variable and lands the sound on the default device.
+    /// Rather than play on the wrong device, nothing is started when no such player exists;
+    /// the caller turns that into a log entry.
     /// </summary>
     private static Process? StartDecoder(string filePath, string? sink)
     {
-        bool hasSink = !string.IsNullOrEmpty(sink);
+        // paplay first: its --device is the selection this plugin already relies on for the
+        // formats it can decode itself, so it is the one known to hold on this platform.
+        // mpv only starts successfully with a device it accepted, but a build without the
+        // pulse output would still start and play elsewhere, so it goes second.
+        if (!string.IsNullOrEmpty(sink))
+            return StartFfmpegToPaplay(filePath, sink) ?? StartMpv(filePath, sink);
 
-        if (HasFfplay.Value)
-        {
-            ProcessStartInfo psi = new("ffplay") { UseShellExecute = false, CreateNoWindow = true };
-            psi.ArgumentList.Add("-nodisp");
-            psi.ArgumentList.Add("-autoexit");
-            psi.ArgumentList.Add("-loglevel");
-            psi.ArgumentList.Add("quiet");
-            psi.ArgumentList.Add(filePath);
-            if (hasSink)
-            {
-                // ffplay outputs through SDL, so the sink is chosen by forcing SDL onto the
-                // PulseAudio driver (pipewire-pulse serves it as well) and letting libpulse
-                // resolve PULSE_SINK for the stream.
-                psi.Environment["SDL_AUDIODRIVER"] = "pulseaudio";
-                psi.Environment["PULSE_SINK"] = sink!;
-            }
-
-            try { return Process.Start(psi); }
-            catch { /* fall through to mpv */ }
-        }
-
-        if (HasMpv.Value)
-        {
-            ProcessStartInfo psi = new("mpv") { UseShellExecute = false, CreateNoWindow = true };
-            psi.ArgumentList.Add("--no-video");
-            psi.ArgumentList.Add("--really-quiet");
-            if (hasSink)
-            {
-                // "pulse/<sink>" selects mpv's PulseAudio output plus the device, instead of
-                // its default (pipewire) output which ignores PULSE_SINK.
-                psi.ArgumentList.Add($"--audio-device=pulse/{sink}");
-            }
-            psi.ArgumentList.Add(filePath);
-
-            try { return Process.Start(psi); }
-            catch { return null; }
-        }
-
-        return null;
+        return StartFfplay(filePath) ?? StartMpv(filePath, null);
     }
+
+    /// <summary>ffplay takes no device argument, so it is only used for the default device.</summary>
+    private static Process? StartFfplay(string filePath)
+    {
+        if (!HasFfplay.Value) return null;
+
+        ProcessStartInfo psi = new("ffplay") { UseShellExecute = false, CreateNoWindow = true };
+        psi.ArgumentList.Add("-nodisp");
+        psi.ArgumentList.Add("-autoexit");
+        psi.ArgumentList.Add("-loglevel");
+        psi.ArgumentList.Add("quiet");
+        psi.ArgumentList.Add(filePath);
+
+        try { return Process.Start(psi); }
+        catch { return null; }
+    }
+
+    private static Process? StartMpv(string filePath, string? sink)
+    {
+        if (!HasMpv.Value) return null;
+
+        ProcessStartInfo psi = new("mpv") { UseShellExecute = false, CreateNoWindow = true };
+        psi.ArgumentList.Add("--no-video");
+        psi.ArgumentList.Add("--really-quiet");
+        // "pulse/<sink>" picks mpv's PulseAudio output plus the device. Without it mpv uses
+        // its native pipewire output, which has its own device naming and no PULSE_SINK.
+        if (!string.IsNullOrEmpty(sink)) psi.ArgumentList.Add($"--audio-device=pulse/{sink}");
+        psi.ArgumentList.Add(filePath);
+
+        try { return Process.Start(psi); }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Decodes with ffmpeg and lets paplay do the output, because paplay's --device is the
+    /// one device selection on this platform that is not negotiable by the client library.
+    /// Raw s16le keeps the pipe seek-free, which a wav header would not.
+    /// </summary>
+    private static Process? StartFfmpegToPaplay(string filePath, string sink)
+    {
+        if (!HasFfmpeg.Value || !HasPaplay.Value) return null;
+
+        string command =
+            $"ffmpeg -v quiet -i {ShellQuote(filePath)} -f s16le -ar 48000 -ac 2 - "
+            + $"| paplay --raw --rate=48000 --channels=2 --format=s16le --device={ShellQuote(sink)}";
+
+        ProcessStartInfo psi = new("/bin/sh") { UseShellExecute = false, CreateNoWindow = true };
+        psi.ArgumentList.Add("-c");
+        psi.ArgumentList.Add(command);
+
+        // The shell is the tracked process, so stopping this playback has to kill the
+        // process tree — which is what Kill(entireProcessTree: true) does for every entry.
+        try { return Process.Start(psi); }
+        catch { return null; }
+    }
+
+    /// <summary>Single-quotes a value for /bin/sh, closing and reopening around any quote.</summary>
+    private static string ShellQuote(string value) => $"'{value.Replace("'", @"'\''")}'";
 
     // --- helpers ---------------------------------------------------------
 
