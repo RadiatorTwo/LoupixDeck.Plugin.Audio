@@ -52,6 +52,10 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             new AudioPlaySoundCommand(_audio, _soundLibrary, _playbackDevices, host),
             new AudioSetVolumeCommand(_audio),
             new AudioSetDefaultDeviceCommand(_audio),
+            new AudioAppVolumeUpCommand(_audio),
+            new AudioAppVolumeDownCommand(_audio),
+            new AudioAppMuteToggleCommand(_audio),
+            new AudioAppSetVolumeCommand(_audio),
         ];
 
         _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings, _aliasStore);
@@ -108,6 +112,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         if (inputs.Count > 0)
             rootChildren.Add(DevicesCategory("Input Devices", inputs, includeGroup));
 
+        rootChildren.Add(ApplicationsCategory(includeGroup));
         rootChildren.Add(SoundsCategory());
 
         IReadOnlyList<MenuNode> roots =
@@ -116,6 +121,52 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         ];
 
         return Task.FromResult(roots);
+    }
+
+    /// <summary>
+    /// "Applications" category. The listed apps are the ones playing audio right now — a
+    /// binding stores the process name, so it keeps working after that app restarts. The
+    /// foreground entry is always offered because it needs no running session to be useful.
+    /// </summary>
+    private MenuNode ApplicationsCategory(bool includeGroup)
+    {
+        List<MenuNode> children = [AppNode("Foreground App", AudioAppParameter.ForegroundAppId, includeGroup)];
+
+        foreach (AudioSessionInfo session in _audio.GetSessions(null))
+            children.Add(AppNode(session.DisplayName, session.AppId, includeGroup));
+
+        return new MenuNode { Name = "Applications", CommandName = string.Empty, Children = children };
+    }
+
+    private MenuNode AppNode(string label, string appId, bool includeGroup)
+    {
+        Dictionary<string, string> AppParam() => new(StringComparer.Ordinal)
+        {
+            [AudioAppParameter.AppIdName] = appId,
+        };
+
+        List<MenuNode> children = [];
+
+        if (includeGroup)
+        {
+            children.Add(new MenuNode
+            {
+                Name = "Volume Control",
+                RotaryGroup = new Dictionary<RotaryAction, MenuCommandRef>
+                {
+                    [RotaryAction.CounterClockwise] = new() { CommandName = "Audio.AppVolumeDown", Parameters = AppParam() },
+                    [RotaryAction.Clockwise] = new() { CommandName = "Audio.AppVolumeUp", Parameters = AppParam() },
+                    [RotaryAction.Press] = new() { CommandName = "Audio.AppMuteToggle", Parameters = AppParam() },
+                },
+            });
+        }
+
+        children.Add(new MenuNode { Name = "Volume Down", CommandName = "Audio.AppVolumeDown", Parameters = AppParam() });
+        children.Add(new MenuNode { Name = "Volume Up", CommandName = "Audio.AppVolumeUp", Parameters = AppParam() });
+        children.Add(new MenuNode { Name = "Mute", CommandName = "Audio.AppMuteToggle", Parameters = AppParam() });
+        children.Add(new MenuNode { Name = "Set Volume", CommandName = "Audio.AppSetVolume", Parameters = AppParam() });
+
+        return new MenuNode { Name = label, CommandName = string.Empty, Children = children };
     }
 
     /// <summary>
