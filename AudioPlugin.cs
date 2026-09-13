@@ -25,7 +25,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         Id = "audio",
         Name = "Audio",
-        Version = new Version(1, 9, 0),
+        Version = new Version(1, 10, 0),
         SdkVersion = new Version(1, 22, 0),
         Author = "RadiatorTwo",
         Description = "Pick the active audio output/input device and adjust volume and mute from the device."
@@ -47,6 +47,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         _commands =
         [
             new AudioOutputFolderCommand(_audio, _aliasStore, _visibility),
+            new AudioCurrentOutputCommand(_audio, _aliasStore, _visibility),
             new AudioInputFolderCommand(_audio, _aliasStore, _visibility),
             new AudioVolumeUpCommand(_audio),
             new AudioVolumeDownCommand(_audio),
@@ -108,6 +109,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         List<MenuNode> rootChildren =
         [
             new MenuNode { Name = "Select Output Device", CommandName = "Audio.OutputDevices" },
+            new MenuNode { Name = "Current Output Device", CommandName = "Audio.CurrentOutput" },
             new MenuNode { Name = "Select Input Device", CommandName = "Audio.InputDevices" },
             new MenuNode { Name = "Mixer", CommandName = "Audio.Mixer" },
         ];
