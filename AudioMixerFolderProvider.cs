@@ -15,7 +15,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private const float StepScalar = 0.05f;
 
     private readonly IAudioService _audio;
-    private readonly FolderGridInfo _grid;
+    private readonly AudioFolderGrid _grid;
     private readonly Dictionary<int, RotaryOverride> _rotaries;
 
     private IReadOnlyList<AudioSessionInfo> _sessions = [];
@@ -23,7 +23,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private string? _rendered;
     private Timer? _refresh;
 
-    public AudioMixerFolderProvider(IAudioService audio, FolderGridInfo grid)
+    internal AudioMixerFolderProvider(IAudioService audio, AudioFolderGrid grid)
     {
         _audio = audio;
         _grid = grid;

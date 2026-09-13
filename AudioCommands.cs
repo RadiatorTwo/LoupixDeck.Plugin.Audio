@@ -22,7 +22,7 @@ internal sealed class AudioOutputFolderCommand(IAudioService audio, AudioAliasSt
 
     public Task Execute(CommandContext ctx)
     {
-        FolderGridInfo grid = FolderGridResolver.Resolve(ctx.Host);
+        AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
         ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Render, aliasStore, grid));
         return Task.CompletedTask;
     }
@@ -45,7 +45,7 @@ internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasSto
 
     public Task Execute(CommandContext ctx)
     {
-        FolderGridInfo grid = FolderGridResolver.Resolve(ctx.Host);
+        AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
         ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Capture, aliasStore, grid));
         return Task.CompletedTask;
     }
@@ -67,7 +67,7 @@ internal sealed class AudioMixerFolderCommand(IAudioService audio) : IPluginComm
 
     public Task Execute(CommandContext ctx)
     {
-        FolderGridInfo grid = FolderGridResolver.Resolve(ctx.Host);
+        AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
         ctx.Host.OpenFolder(new AudioMixerFolderProvider(audio, grid));
         return Task.CompletedTask;
     }

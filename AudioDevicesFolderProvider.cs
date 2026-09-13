@@ -11,10 +11,10 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
     private readonly IAudioService _audio;
     private readonly AudioEndpointKind _kind;
     private readonly AudioAliasStore _aliasStore;
-    private readonly FolderGridInfo _grid;
+    private readonly AudioFolderGrid _grid;
 
-    public AudioDevicesFolderProvider(IAudioService audio, AudioEndpointKind kind, AudioAliasStore aliasStore,
-        FolderGridInfo grid)
+    internal AudioDevicesFolderProvider(IAudioService audio, AudioEndpointKind kind, AudioAliasStore aliasStore,
+        AudioFolderGrid grid)
     {
         _audio = audio;
         _kind = kind;
@@ -35,10 +35,10 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
         var entries = new List<FolderEntry>(endpoints.Count);
 
         // Fill the slots in reading order, skipping the reserved back-button slot.
-        var index = 0;
+        int index = 0;
         foreach (var ep in endpoints)
         {
-            var slot = _grid.SlotForIndex(index++);
+            int slot = _grid.SlotForIndex(index++);
             if (slot < 0) break; // grid full
 
             var capturedEp = ep;
