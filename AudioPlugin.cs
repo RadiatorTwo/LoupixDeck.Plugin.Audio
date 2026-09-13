@@ -16,6 +16,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     private AudioAliasStore? _aliasStore;
     private SoundLibrary? _soundLibrary;
     private PlaybackDeviceStore? _playbackDevices;
+    private AudioVisibilityStore? _visibility;
     private IPluginSettings? _settings;
 
     internal static readonly TimeSpan VolumeOverlayDuration = TimeSpan.FromMilliseconds(1500);
@@ -41,11 +42,12 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         _aliasStore = new AudioAliasStore(host.Settings);
         _soundLibrary = new SoundLibrary(host.Settings);
         _playbackDevices = new PlaybackDeviceStore(host.Settings);
+        _visibility = new AudioVisibilityStore(host.Settings);
 
         _commands =
         [
-            new AudioOutputFolderCommand(_audio, _aliasStore),
-            new AudioInputFolderCommand(_audio, _aliasStore),
+            new AudioOutputFolderCommand(_audio, _aliasStore, _visibility),
+            new AudioInputFolderCommand(_audio, _aliasStore, _visibility),
             new AudioVolumeUpCommand(_audio),
             new AudioVolumeDownCommand(_audio),
             new AudioMuteToggleCommand(_audio),
@@ -460,6 +462,27 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
                 Kind = PluginSettingKind.Toggle,
                 Description = "Switch off to fall back to the system default device.",
                 DefaultValue = true
+            });
+        }
+
+        list.Add(new PluginSettingDescriptor
+        {
+            Key = "__heading_visibility",
+            Label = "Visible Devices",
+            Kind = PluginSettingKind.Heading,
+            Description = "Hide a device from the touch-screen picker folders. Commands bound "
+                          + "to a hidden device keep working.",
+            DefaultValue = string.Empty
+        });
+        foreach (var ep in outputs.Concat(inputs))
+        {
+            list.Add(new PluginSettingDescriptor
+            {
+                Key = AudioVisibilityStore.TogglePrefix + ep.Id,
+                Label = $"Hide {_aliasStore.Resolve(ep)}",
+                Kind = PluginSettingKind.Toggle,
+                Description = "On: hidden from the device picker.",
+                DefaultValue = false
             });
         }
 

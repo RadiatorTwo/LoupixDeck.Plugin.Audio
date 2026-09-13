@@ -11,14 +11,16 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
     private readonly IAudioService _audio;
     private readonly AudioEndpointKind _kind;
     private readonly AudioAliasStore _aliasStore;
+    private readonly AudioVisibilityStore _visibility;
     private readonly AudioFolderGrid _grid;
 
     internal AudioDevicesFolderProvider(IAudioService audio, AudioEndpointKind kind, AudioAliasStore aliasStore,
-        AudioFolderGrid grid)
+        AudioVisibilityStore visibility, AudioFolderGrid grid)
     {
         _audio = audio;
         _kind = kind;
         _aliasStore = aliasStore;
+        _visibility = visibility;
         _grid = grid;
     }
 
@@ -31,7 +33,7 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
 
     public override IReadOnlyList<FolderEntry> BuildEntries()
     {
-        var endpoints = _audio.GetEndpoints(_kind);
+        var endpoints = _visibility.Visible(_audio.GetEndpoints(_kind));
         var entries = new List<FolderEntry>(endpoints.Count);
 
         // Fill the slots in reading order, skipping the reserved back-button slot.

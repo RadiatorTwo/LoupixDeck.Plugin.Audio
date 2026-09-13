@@ -6,7 +6,8 @@ namespace LoupixDeck.Plugin.Audio;
 /// Opens the audio output-device folder. Command name kept identical to the
 /// former built-in command.
 /// </summary>
-internal sealed class AudioOutputFolderCommand(IAudioService audio, AudioAliasStore aliasStore) : IPluginCommand
+internal sealed class AudioOutputFolderCommand(IAudioService audio, AudioAliasStore aliasStore,
+    AudioVisibilityStore visibility) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -23,13 +24,14 @@ internal sealed class AudioOutputFolderCommand(IAudioService audio, AudioAliasSt
     public Task Execute(CommandContext ctx)
     {
         AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
-        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Render, aliasStore, grid));
+        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Render, aliasStore, visibility, grid));
         return Task.CompletedTask;
     }
 }
 
 /// <summary>Opens the audio input-device folder.</summary>
-internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasStore aliasStore) : IPluginCommand
+internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasStore aliasStore,
+    AudioVisibilityStore visibility) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -46,7 +48,7 @@ internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasSto
     public Task Execute(CommandContext ctx)
     {
         AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
-        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Capture, aliasStore, grid));
+        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Capture, aliasStore, visibility, grid));
         return Task.CompletedTask;
     }
 }
