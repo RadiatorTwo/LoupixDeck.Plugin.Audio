@@ -11,12 +11,17 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
     private readonly IAudioService _audio;
     private readonly AudioEndpointKind _kind;
     private readonly AudioAliasStore _aliasStore;
+    private readonly AudioVisibilityStore _visibility;
+    private readonly AudioFolderGrid _grid;
 
-    public AudioDevicesFolderProvider(IAudioService audio, AudioEndpointKind kind, AudioAliasStore aliasStore)
+    internal AudioDevicesFolderProvider(IAudioService audio, AudioEndpointKind kind, AudioAliasStore aliasStore,
+        AudioVisibilityStore visibility, AudioFolderGrid grid)
     {
         _audio = audio;
         _kind = kind;
         _aliasStore = aliasStore;
+        _visibility = visibility;
+        _grid = grid;
     }
 
     public override string Title =>
@@ -28,15 +33,15 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
 
     public override IReadOnlyList<FolderEntry> BuildEntries()
     {
-        var endpoints = _audio.GetEndpoints(_kind);
+        var endpoints = _visibility.Visible(_audio.GetEndpoints(_kind));
         var entries = new List<FolderEntry>(endpoints.Count);
 
-        // Fill the slots in order, skipping the reserved back-button slot.
-        var slot = 0;
+        // Fill the slots in reading order, skipping the reserved back-button slot.
+        int index = 0;
         foreach (var ep in endpoints)
         {
-            if (slot == FolderLayout.BackSlotIndex) slot++;
-            if (slot >= FolderLayout.TotalSlots) break;
+            int slot = _grid.SlotForIndex(index++);
+            if (slot < 0) break; // grid full
 
             var capturedEp = ep;
             entries.Add(new FolderEntry
@@ -50,7 +55,6 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
                 Bold = capturedEp.IsDefault,
                 OpensFolder = new AudioDeviceControlFolderProvider(_audio, capturedEp, _kind, _aliasStore)
             });
-            slot++;
         }
         return entries;
     }

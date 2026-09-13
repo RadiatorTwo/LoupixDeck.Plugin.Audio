@@ -6,7 +6,8 @@ namespace LoupixDeck.Plugin.Audio;
 /// Opens the audio output-device folder. Command name kept identical to the
 /// former built-in command.
 /// </summary>
-internal sealed class AudioOutputFolderCommand(IAudioService audio, AudioAliasStore aliasStore) : IPluginCommand
+internal sealed class AudioOutputFolderCommand(IAudioService audio, AudioAliasStore aliasStore,
+    AudioVisibilityStore visibility) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -22,13 +23,15 @@ internal sealed class AudioOutputFolderCommand(IAudioService audio, AudioAliasSt
 
     public Task Execute(CommandContext ctx)
     {
-        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Render, aliasStore));
+        AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
+        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Render, aliasStore, visibility, grid));
         return Task.CompletedTask;
     }
 }
 
 /// <summary>Opens the audio input-device folder.</summary>
-internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasStore aliasStore) : IPluginCommand
+internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasStore aliasStore,
+    AudioVisibilityStore visibility) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -44,7 +47,8 @@ internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasSto
 
     public Task Execute(CommandContext ctx)
     {
-        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Capture, aliasStore));
+        AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
+        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Capture, aliasStore, visibility, grid));
         return Task.CompletedTask;
     }
 }
@@ -65,7 +69,8 @@ internal sealed class AudioMixerFolderCommand(IAudioService audio) : IPluginComm
 
     public Task Execute(CommandContext ctx)
     {
-        ctx.Host.OpenFolder(new AudioMixerFolderProvider(audio));
+        AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
+        ctx.Host.OpenFolder(new AudioMixerFolderProvider(audio, grid));
         return Task.CompletedTask;
     }
 }
