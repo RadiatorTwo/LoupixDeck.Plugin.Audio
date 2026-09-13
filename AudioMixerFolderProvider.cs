@@ -15,6 +15,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private const float StepScalar = 0.05f;
 
     private readonly IAudioService _audio;
+    private readonly FolderGridInfo _grid;
     private readonly Dictionary<int, RotaryOverride> _rotaries;
 
     private IReadOnlyList<AudioSessionInfo> _sessions = [];
@@ -22,9 +23,10 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private string? _rendered;
     private Timer? _refresh;
 
-    public AudioMixerFolderProvider(IAudioService audio)
+    public AudioMixerFolderProvider(IAudioService audio, FolderGridInfo grid)
     {
         _audio = audio;
+        _grid = grid;
         _rotaries = new Dictionary<int, RotaryOverride>
         {
             [0] = new RotaryOverride
@@ -58,12 +60,12 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     public override IReadOnlyList<FolderEntry> BuildEntries()
     {
         List<FolderEntry> entries = [];
-        int slot = 0;
+        int index = 0;
 
         foreach (AudioSessionInfo session in _sessions)
         {
-            if (slot == FolderLayout.BackSlotIndex) slot++;
-            if (slot >= FolderLayout.TotalSlots) break;
+            int slot = _grid.SlotForIndex(index++);
+            if (slot < 0) break; // grid full
 
             AudioSessionInfo captured = session;
             bool selected = string.Equals(captured.AppId, _selectedAppId, StringComparison.Ordinal);
@@ -87,7 +89,6 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
                     return Task.CompletedTask;
                 }
             });
-            slot++;
         }
 
         if (entries.Count == 0)
