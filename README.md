@@ -18,10 +18,10 @@ listing the active audio endpoints; a sub-folder per device shows the live
 volume and a mute toggle (the first rotary adjusts volume).
 
 `Audio.CurrentOutput` — a touch-screen button that shows the active output
-device's alias and opens the output-device picker when pressed. Polls twice a
-second; the label follows a default-device change made outside the app (from
-the OS sound settings or `pactl`) within that time, and reads "No device" when
-none is set.
+device's alias and opens the output-device picker when pressed. The label
+refreshes every two seconds, so it can lag a default-device change made
+outside the app (from the OS sound settings or `pactl`) by a few seconds, and
+reads "No device" when none is set.
 
 `Audio.VolumeUp` / `Audio.VolumeDown` / `Audio.MuteToggle` — act on one
 device, assigned from the command menu (Audio → Output/Input Devices). The
