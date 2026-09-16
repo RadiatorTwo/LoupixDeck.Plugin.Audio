@@ -25,6 +25,8 @@ internal sealed class AudioSetDefaultDeviceCommand(IAudioService audio) : IPlugi
 
     public Task Execute(CommandContext ctx)
     {
+        // Deliberately the raw overload: "make the default device the default" is not an action,
+        // so the @default sentinel simply does not resolve here.
         string? id = AudioDeviceParameter.ResolveDeviceId(ctx);
         if (id == null) return Task.CompletedTask;
 

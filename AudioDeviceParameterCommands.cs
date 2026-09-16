@@ -12,12 +12,26 @@ internal static class AudioDeviceParameter
     /// flyout (SDK 1.17 command-defined parameter defaults). 2% matches the former fixed step.</summary>
     public const int DefaultStepPercent = 2;
 
-    public static string? ResolveDeviceId(CommandContext ctx)
+    /// <summary>Reserved endpoint id resolved to the current default render device at execution
+    /// time. A binding that carries it keeps meaning the right thing after the user switches
+    /// their default output, and travels to another machine, which a raw endpoint id does not.
+    /// </summary>
+    public const string DefaultDeviceId = "@default";
+
+    public static string? ResolveDeviceId(CommandContext ctx) => ResolveDeviceId(ctx, null);
+
+    public static string? ResolveDeviceId(CommandContext ctx, IAudioService? audio)
     {
         var p = ctx.Parameters;
         if (p == null || p.Length == 0) return null;
         var id = p[0];
-        return string.IsNullOrWhiteSpace(id) ? null : id;
+        if (string.IsNullOrWhiteSpace(id)) return null;
+
+        if (!string.Equals(id, DefaultDeviceId, StringComparison.Ordinal))
+            return id;
+
+        // Render only: the default-device sentinel exists for "the speakers I am listening on".
+        return audio?.GetEndpoints(AudioEndpointKind.Render).FirstOrDefault(ep => ep.IsDefault)?.Id;
     }
 
     /// <summary>Resolves the configured volume step (parameter index 1, in percent) as a
@@ -106,7 +120,7 @@ internal sealed class AudioVolumeUpCommand(IAudioService audio) : IPluginCommand
 
     public Task Execute(CommandContext ctx)
     {
-        var id = AudioDeviceParameter.ResolveDeviceId(ctx);
+        var id = AudioDeviceParameter.ResolveDeviceId(ctx, audio);
         if (id == null) return Task.CompletedTask;
         var next = Math.Clamp(audio.GetVolume(id) + AudioDeviceParameter.ResolveStepScalar(ctx), 0f, 1f);
         audio.SetVolume(id, next);
@@ -133,7 +147,7 @@ internal sealed class AudioVolumeDownCommand(IAudioService audio) : IPluginComma
 
     public Task Execute(CommandContext ctx)
     {
-        var id = AudioDeviceParameter.ResolveDeviceId(ctx);
+        var id = AudioDeviceParameter.ResolveDeviceId(ctx, audio);
         if (id == null) return Task.CompletedTask;
         var next = Math.Clamp(audio.GetVolume(id) - AudioDeviceParameter.ResolveStepScalar(ctx), 0f, 1f);
         audio.SetVolume(id, next);
@@ -160,7 +174,7 @@ internal sealed class AudioMuteToggleCommand(IAudioService audio) : IPluginComma
 
     public Task Execute(CommandContext ctx)
     {
-        var id = AudioDeviceParameter.ResolveDeviceId(ctx);
+        var id = AudioDeviceParameter.ResolveDeviceId(ctx, audio);
         if (id == null) return Task.CompletedTask;
         var muted = !audio.GetMute(id);
         audio.SetMute(id, muted);
@@ -188,7 +202,7 @@ internal sealed class AudioSetVolumeCommand(IAudioService audio) : IPluginComman
 
     public Task Execute(CommandContext ctx)
     {
-        string? id = AudioDeviceParameter.ResolveDeviceId(ctx);
+        string? id = AudioDeviceParameter.ResolveDeviceId(ctx, audio);
         if (id == null) return Task.CompletedTask;
 
         float target = AudioDeviceParameter.ResolvePercentScalar(ctx);
