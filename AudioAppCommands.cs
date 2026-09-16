@@ -53,6 +53,28 @@ internal static class AudioAppParameter
             : id;
     }
 
+    /// <summary>
+    /// The bound app, reporting on the dial when there is none. Silence is the wrong answer here:
+    /// the foreground sentinel resolves to nothing whenever the window in front belongs to no
+    /// process we can read — including LoupixDeck's own window while the user is configuring — and
+    /// a dial that does nothing without saying why is indistinguishable from a broken binding.
+    /// </summary>
+    public static string? ResolveAppIdOrReport(CommandContext ctx, IAudioService audio)
+    {
+        string? appId = ResolveAppId(ctx, audio);
+        if (appId == null)
+            AudioDeviceParameter.ShowOverlay(ctx, "No app in front");
+
+        return appId;
+    }
+
+    /// <summary>
+    /// Says that the app has no audio session to change, which is what a resolved app that is not
+    /// playing anything looks like from here.
+    /// </summary>
+    public static void ReportNoSession(CommandContext ctx, string appId) =>
+        AudioDeviceParameter.ShowOverlay(ctx, $"{appId}: no audio");
+
     public static int ResolveInt(CommandContext ctx, int fallback)
     {
         string[]? p = ctx.Parameters;
@@ -84,11 +106,15 @@ internal sealed class AudioAppVolumeUpCommand(IAudioService audio) : IPluginComm
 
     public Task Execute(CommandContext ctx)
     {
-        string? appId = AudioAppParameter.ResolveAppId(ctx, audio);
+        string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
         if (appId == null) return Task.CompletedTask;
 
         float? current = audio.GetSessionVolume(null, appId);
-        if (current == null) return Task.CompletedTask;
+        if (current == null)
+        {
+            AudioAppParameter.ReportNoSession(ctx, appId);
+            return Task.CompletedTask;
+        }
 
         float step = Math.Abs(AudioAppParameter.ResolveInt(ctx, AudioAppParameter.DefaultStepPercent)) / 100f;
         float next = Math.Clamp(current.Value + step, 0f, 1f);
@@ -117,11 +143,15 @@ internal sealed class AudioAppVolumeDownCommand(IAudioService audio) : IPluginCo
 
     public Task Execute(CommandContext ctx)
     {
-        string? appId = AudioAppParameter.ResolveAppId(ctx, audio);
+        string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
         if (appId == null) return Task.CompletedTask;
 
         float? current = audio.GetSessionVolume(null, appId);
-        if (current == null) return Task.CompletedTask;
+        if (current == null)
+        {
+            AudioAppParameter.ReportNoSession(ctx, appId);
+            return Task.CompletedTask;
+        }
 
         float step = Math.Abs(AudioAppParameter.ResolveInt(ctx, AudioAppParameter.DefaultStepPercent)) / 100f;
         float next = Math.Clamp(current.Value - step, 0f, 1f);
@@ -150,11 +180,15 @@ internal sealed class AudioAppMuteToggleCommand(IAudioService audio) : IPluginCo
 
     public Task Execute(CommandContext ctx)
     {
-        string? appId = AudioAppParameter.ResolveAppId(ctx, audio);
+        string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
         if (appId == null) return Task.CompletedTask;
 
         bool? muted = audio.GetSessionMute(null, appId);
-        if (muted == null) return Task.CompletedTask;
+        if (muted == null)
+        {
+            AudioAppParameter.ReportNoSession(ctx, appId);
+            return Task.CompletedTask;
+        }
 
         audio.SetSessionMute(null, appId, !muted.Value);
         AudioDeviceParameter.ShowOverlay(ctx, !muted.Value ? "🔇" : $"🔊 {appId}");
@@ -181,7 +215,7 @@ internal sealed class AudioAppSetVolumeCommand(IAudioService audio) : IPluginCom
 
     public Task Execute(CommandContext ctx)
     {
-        string? appId = AudioAppParameter.ResolveAppId(ctx, audio);
+        string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
         if (appId == null) return Task.CompletedTask;
 
         float target = Math.Clamp(
