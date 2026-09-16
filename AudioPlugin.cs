@@ -18,15 +18,21 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     private PlaybackDeviceStore? _playbackDevices;
     private AudioVisibilityStore? _visibility;
     private IPluginSettings? _settings;
+    private IPluginLogger? _logger;
 
     internal static readonly TimeSpan VolumeOverlayDuration = TimeSpan.FromMilliseconds(1500);
+
+    // Material Design Icons code points used by the contributed dial presets.
+    private const string VolumeGlyph = "\U000F057E";      // mdi-volume-high
+    private const string MicrophoneGlyph = "\U000F036C";  // mdi-microphone
+    private const string ApplicationGlyph = "\U000F0614";  // mdi-application
 
     public override PluginMetadata Metadata { get; } = new()
     {
         Id = "audio",
         Name = "Audio",
         Version = new Version(1, 10, 0),
-        SdkVersion = new Version(1, 22, 0),
+        SdkVersion = SdkInfo.Version,
         Author = "RadiatorTwo",
         Description = "Pick the active audio output/input device and adjust volume and mute from the device."
     };
@@ -38,6 +44,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         // The Windows backend logs its own COM failures, so it needs the host logger.
         if (_audio is WindowsAudioService windows) windows.Logger = host.Logger;
 
+        _logger = host.Logger;
         _settings = host.Settings;
         _aliasStore = new AudioAliasStore(host.Settings);
         _soundLibrary = new SoundLibrary(host.Settings);
@@ -89,6 +96,118 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             Section = CommandGroupSection.Plugins
         }
     ];
+
+    /// <summary>
+    /// The dial presets this plugin offers. Rebuilt on every call, so the device presets follow
+    /// the endpoints that actually exist right now — plug in a headset and its preset is there.
+    /// </summary>
+    /// <remarks>
+    /// The master preset binds the default-device sentinel rather than an endpoint id, so it keeps
+    /// meaning "the speakers I am listening on" after the user switches their default output.
+    /// The per-device presets bind the endpoint id, which is the point of having them.
+    /// </remarks>
+    public override IEnumerable<DialPresetDescriptor> GetDialPresets()
+    {
+        yield return DevicePreset(
+            "master-volume", "Master volume", VolumeGlyph, AudioDeviceParameter.DefaultDeviceId);
+
+        foreach (AudioEndpointInfo ep in Endpoints(AudioEndpointKind.Render))
+            yield return DevicePreset($"output-{ep.Id}", Name(ep), VolumeGlyph, ep.Id);
+
+        foreach (AudioEndpointInfo ep in Endpoints(AudioEndpointKind.Capture))
+            yield return DevicePreset($"input-{ep.Id}", Name(ep), MicrophoneGlyph, ep.Id);
+
+        // Whatever is playing in front, rather than a fixed application: the one preset that is
+        // worth having without knowing which app the user will be in.
+        Dictionary<string, string> foreground = new(StringComparer.Ordinal)
+        {
+            [AudioAppParameter.AppIdName] = AudioAppParameter.ForegroundAppId,
+        };
+
+        yield return new DialPresetDescriptor
+        {
+            Id = "foreground-app-volume",
+            Name = "Foreground app volume",
+            Glyph = ApplicationGlyph,
+            Actions = new Dictionary<RotaryAction, MenuCommandRef>
+            {
+                [RotaryAction.CounterClockwise] = new()
+                {
+                    CommandName = "Audio.AppVolumeDown",
+                    Parameters = foreground,
+                },
+                [RotaryAction.Clockwise] = new()
+                {
+                    CommandName = "Audio.AppVolumeUp",
+                    Parameters = foreground,
+                },
+                [RotaryAction.Press] = new()
+                {
+                    CommandName = "Audio.AppMuteToggle",
+                    Parameters = foreground,
+                },
+            },
+        };
+    }
+
+    /// <summary>Turn to change this endpoint's volume, press to mute it.</summary>
+    private static DialPresetDescriptor DevicePreset(string id, string name, string glyph,
+        string endpointId)
+    {
+        Dictionary<string, string> device = new(StringComparer.Ordinal)
+        {
+            [AudioDeviceParameter.DeviceIdName] = endpointId,
+        };
+
+        return new DialPresetDescriptor
+        {
+            // Derived from the endpoint id, so a preset keeps its identity across restarts and
+            // across a device coming and going.
+            Id = id,
+            Name = name,
+            Glyph = glyph,
+            Actions = new Dictionary<RotaryAction, MenuCommandRef>
+            {
+                [RotaryAction.CounterClockwise] = new()
+                {
+                    CommandName = "Audio.VolumeDown",
+                    Parameters = device,
+                },
+                [RotaryAction.Clockwise] = new()
+                {
+                    CommandName = "Audio.VolumeUp",
+                    Parameters = device,
+                },
+                [RotaryAction.Press] = new()
+                {
+                    CommandName = "Audio.MuteToggle",
+                    Parameters = device,
+                },
+            },
+        };
+    }
+
+    /// <summary>
+    /// The endpoints of one kind, or none when the backend cannot enumerate them. Preset building
+    /// runs on whatever thread opened a preset surface, and a failure there must cost the presets,
+    /// not the plugin.
+    /// </summary>
+    private IReadOnlyList<AudioEndpointInfo> Endpoints(AudioEndpointKind kind)
+    {
+        try
+        {
+            return _audio.IsSupported ? _audio.GetEndpoints(kind) : [];
+        }
+        catch (Exception ex)
+        {
+            _logger?.Warn($"Could not list {kind} endpoints for the dial presets: {ex.Message}");
+            return [];
+        }
+    }
+
+    /// <summary>The device's name as the rest of the plugin shows it — the user's alias when they
+    /// set one.</summary>
+    private string Name(AudioEndpointInfo ep) => _aliasStore?.Resolve(ep) ?? ep.FriendlyName;
 
     public override IEnumerable<ISideStripProvider> GetSideStripProviders() => _stripProviders;
 
