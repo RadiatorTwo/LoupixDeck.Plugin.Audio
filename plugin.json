@@ -2,7 +2,7 @@
   "id": "audio",
   "name": "Audio",
   "version": "1.11.1",
-  "sdkVersion": "1.22",
+  "sdkVersion": "1.23",
   "entryAssembly": "LoupixDeck.Plugin.Audio.dll",
   "platform": "All"
 }

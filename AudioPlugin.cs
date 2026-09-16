@@ -90,6 +90,45 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         }
     ];
 
+    /// <summary>
+    /// A ready-made dial: turn to change the volume of whatever is in front, press to mute it. It
+    /// binds the foreground sentinel rather than a device or a process, so the preset is useful on
+    /// any machine and keeps working as the user switches applications.
+    /// </summary>
+    public override IEnumerable<DialPresetDescriptor> GetDialPresets()
+    {
+        Dictionary<string, string> foreground = new(StringComparer.Ordinal)
+        {
+            [AudioAppParameter.AppIdName] = AudioAppParameter.ForegroundAppId,
+        };
+
+        yield return new DialPresetDescriptor
+        {
+            // Stable for the life of the plugin: the host derives the preset's identity from it.
+            Id = "foreground-app-volume",
+            Name = "Foreground app volume",
+            Glyph = "\U000F057E", // mdi-volume-high
+            Actions = new Dictionary<RotaryAction, MenuCommandRef>
+            {
+                [RotaryAction.CounterClockwise] = new()
+                {
+                    CommandName = "Audio.AppVolumeDown",
+                    Parameters = foreground,
+                },
+                [RotaryAction.Clockwise] = new()
+                {
+                    CommandName = "Audio.AppVolumeUp",
+                    Parameters = foreground,
+                },
+                [RotaryAction.Press] = new()
+                {
+                    CommandName = "Audio.AppMuteToggle",
+                    Parameters = foreground,
+                },
+            },
+        };
+    }
+
     public override IEnumerable<ISideStripProvider> GetSideStripProviders() => _stripProviders;
 
     // ---- IMenuContributor ----
