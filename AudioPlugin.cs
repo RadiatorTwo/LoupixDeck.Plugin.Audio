@@ -19,6 +19,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     private AudioVisibilityStore? _visibility;
     private IPluginSettings? _settings;
     private IPluginLogger? _logger;
+    private IPluginHost? _host;
 
     internal static readonly TimeSpan VolumeOverlayDuration = TimeSpan.FromMilliseconds(1500);
 
@@ -44,6 +45,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         // The Windows backend logs its own COM failures, so it needs the host logger.
         if (_audio is WindowsAudioService windows) windows.Logger = host.Logger;
 
+        _host = host;
         _logger = host.Logger;
         _settings = host.Settings;
         _aliasStore = new AudioAliasStore(host.Settings);
@@ -70,7 +72,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             new AudioMixerFolderCommand(_audio),
         ];
 
-        _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings, _aliasStore);
+        _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings, _aliasStore, host);
         _stripProviders = [_stripProvider];
     }
 
@@ -346,11 +348,12 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         string? configured = _soundLibrary?.ConfiguredFolder;
         if (configured == null)
-            return "Set a sound folder in the Audio plugin settings";
+            return Tr("Set a sound folder in the Audio plugin settings");
 
+        // The folder path is a value, so only the fixed part is a key.
         return _soundLibrary?.FolderPath == null
-            ? $"Sound folder not found: {configured}"
-            : "No supported audio files in the sound folder";
+            ? string.Format(Tr("Sound folder not found: {0}"), configured)
+            : Tr("No supported audio files in the sound folder");
     }
 
     /// <summary>Mutable builder for the nested "Play Sound" menu.</summary>
@@ -516,7 +519,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
                 list.Add(new PluginSettingDescriptor
                 {
                     Key = AudioAliasStore.KeyPrefix + id,
-                    Label = $"{id} (not connected)",
+                    // The device name is a value, so only the fixed part is a key.
+                    Label = string.Format(Tr("{0} (not connected)"), id),
                     Kind = PluginSettingKind.Text,
                     DefaultValue = string.Empty
                 });
@@ -579,7 +583,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             list.Add(new PluginSettingDescriptor
             {
                 Key = PlaybackDeviceStore.TogglePrefix + selectedId,
-                Label = $"{_aliasStore.Resolve(selectedId, selectedId)} (not connected)",
+                Label = string.Format(Tr("{0} (not connected)"), _aliasStore.Resolve(selectedId, selectedId)),
                 Kind = PluginSettingKind.Toggle,
                 Description = "Switch off to fall back to the system default device.",
                 DefaultValue = true
@@ -600,7 +604,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             list.Add(new PluginSettingDescriptor
             {
                 Key = AudioVisibilityStore.TogglePrefix + ep.Id,
-                Label = $"Hide {_aliasStore.Resolve(ep)}",
+                // The device name is a value, so only the fixed part is a key.
+                Label = string.Format(Tr("Hide {0}"), _aliasStore.Resolve(ep)),
                 Kind = PluginSettingKind.Toggle,
                 Description = "On: hidden from the device picker.",
                 DefaultValue = false
@@ -609,6 +614,10 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
 
         return list;
     }
+
+    /// <summary>Text this plugin composes itself, which the host cannot translate from a
+    /// descriptor. Falls back to the English wording before Initialize has run.</summary>
+    private string Tr(string english) => _host?.Tr(english) ?? english;
 
     private static PluginSettingDescriptor AliasField(AudioEndpointInfo ep) => new()
     {

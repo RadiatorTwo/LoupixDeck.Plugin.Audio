@@ -8,7 +8,8 @@ namespace LoupixDeck.Plugin.Audio;
 /// actually controls — resolved from the rotary's bound <c>Audio.Volume*</c> command —
 /// so it stays in sync with the dial assignment without separate configuration.
 /// </summary>
-internal sealed class AudioVolumeStripProvider(IAudioService audio, IPluginSettings settings, AudioAliasStore aliasStore)
+internal sealed class AudioVolumeStripProvider(IAudioService audio, IPluginSettings settings, AudioAliasStore aliasStore,
+    IPluginHost host)
     : ISideStripProvider, ISegmentStripProvider
 {
     /// <summary>Settings key: when true the strip renders as 3 stacked horizontal
@@ -23,7 +24,7 @@ internal sealed class AudioVolumeStripProvider(IAudioService audio, IPluginSetti
 
     public ISideStripSession CreateSession(SideStripContext context)
     {
-        var session = new AudioVolumeStripSession(audio, settings, aliasStore, context, Forget);
+        var session = new AudioVolumeStripSession(audio, settings, aliasStore, host, context, Forget);
         lock (_sessions) _sessions.Add(session);
         return session;
     }
@@ -63,6 +64,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
     private readonly IAudioService _audio;
     private readonly IPluginSettings _settings;
     private readonly AudioAliasStore _aliasStore;
+    private readonly IPluginHost _host;
     private readonly SideStripContext _context;
     private readonly Action<AudioVolumeStripSession> _onDisposed;
     private readonly int _width;
@@ -79,11 +81,13 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
     public void RaiseChanged() => StripChanged?.Invoke(this, EventArgs.Empty);
 
     public AudioVolumeStripSession(IAudioService audio, IPluginSettings settings,
-        AudioAliasStore aliasStore, SideStripContext context, Action<AudioVolumeStripSession> onDisposed)
+        AudioAliasStore aliasStore, IPluginHost host, SideStripContext context,
+        Action<AudioVolumeStripSession> onDisposed)
     {
         _audio = audio;
         _settings = settings;
         _aliasStore = aliasStore;
+        _host = host;
         _context = context;
         _onDisposed = onDisposed;
         _width = context.Width;
@@ -185,7 +189,8 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
                 return resolved;
         }
 
-        return $"Dial {bar.DialNumber}";
+        // The dial number is a value, so only the fixed part is a key.
+        return string.Format(_host.Tr("Dial {0}"), bar.DialNumber);
     }
 
     /// <summary>Tapping a bar toggles mute on that bar's device. The bars run left-to-right

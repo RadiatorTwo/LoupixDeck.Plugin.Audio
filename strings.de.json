@@ -73,6 +73,14 @@
   "Stop Sounds": "Klänge stoppen",
   "Mixer": "Mixer",
 
+  "Hide {0}": "{0} ausblenden",
+  "{0} (not connected)": "{0} (nicht verbunden)",
+  "{0}: no audio": "{0}: kein Ton",
+  "Dial {0}": "Regler {0}",
+  "Set a sound folder in the Audio plugin settings": "In den Einstellungen des Audio-Plugins einen Klangordner festlegen",
+  "Sound folder not found: {0}": "Klangordner nicht gefunden: {0}",
+  "No supported audio files in the sound folder": "Keine unterstützten Audiodateien im Klangordner",
+
   "Unmute": "Ton an",
   "Is Default": "Ist Standard",
   "Set Default": "Standard setzen",
