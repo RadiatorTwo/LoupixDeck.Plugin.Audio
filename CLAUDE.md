@@ -8,8 +8,8 @@ Diese Ordner liegen lokal und enthalten alles, was zum Verständnis und zur Entw
 
 - **Wiki (Plugin-SDK-Dokumentation):** `C:\!Code\LoupixDeck.PluginSdk.wiki`
   Erste Anlaufstelle für SDK-Konzepte, Lifecycle, Manifest, Commands, Settings, Folder-Provider.
-- **SDK (Quellcode + lokales NuGet-Feed):** `C:\!Code\LoupixDeck.PluginSdk`
-  Enthält die Basisklassen (`LoupixPlugin`), Interfaces (`IPluginCommand`, `IPluginHost`, `IDisplayCommand`, `IFolderProvider`, `IPluginSettingsPage`) und unter `nupkg\` das NuGet-Paket, gegen das hier gebaut wird (siehe `nuget.config`).
+- **SDK (Quellcode):** `C:\!Code\LoupixDeck.PluginSdk`
+  Enthält die Basisklassen (`LoupixPlugin`), Interfaces (`IPluginCommand`, `IPluginHost`, `IDisplayCommand`, `IFolderProvider`, `IPluginSettingsPage`). Gebaut wird hier gegen das Paket von nuget.org; für einen unveröffentlichten SDK-Stand den lokalen Feed unter `nupkg\` per `nuget.config` oder `dotnet restore --source` hinzufügen.
 - **Host-Software (LoupixDeck):** `C:\!Code\LoupixDeck`
   Lädt das Plugin zur Laufzeit. Hier liegt der `PluginManager` und die Logik für Plugin-Discovery, Manifest-Parsing und Command-Ausführung.
 - **Referenz-Plugin (vollständiges Beispiel):** `C:\!Code\LoupixDeck.Plugin.Audio`

@@ -13,19 +13,22 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
     private readonly AudioAliasStore _aliasStore;
     private readonly AudioVisibilityStore _visibility;
     private readonly AudioFolderGrid _grid;
+    private readonly IPluginHost _host;
 
     internal AudioDevicesFolderProvider(IAudioService audio, AudioEndpointKind kind, AudioAliasStore aliasStore,
-        AudioVisibilityStore visibility, AudioFolderGrid grid)
+        AudioVisibilityStore visibility, AudioFolderGrid grid, IPluginHost host)
     {
         _audio = audio;
         _kind = kind;
         _aliasStore = aliasStore;
         _visibility = visibility;
         _grid = grid;
+        _host = host;
     }
 
+    // Built while the plugin runs, so the host cannot translate it from the descriptors.
     public override string Title =>
-        _kind == AudioEndpointKind.Render ? "Output Devices" : "Input Devices";
+        _host.Tr(_kind == AudioEndpointKind.Render ? "Output Devices" : "Input Devices");
 
     public override void OnEnter() => _aliasStore.Changed += RaiseEntriesChanged;
 
@@ -53,7 +56,7 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
                     : PluginColor.FromRgb(0x20, 0x20, 0x40),
                 TextSize = 13,
                 Bold = capturedEp.IsDefault,
-                OpensFolder = new AudioDeviceControlFolderProvider(_audio, capturedEp, _kind, _aliasStore)
+                OpensFolder = new AudioDeviceControlFolderProvider(_audio, capturedEp, _kind, _aliasStore, _host)
             });
         }
         return entries;
