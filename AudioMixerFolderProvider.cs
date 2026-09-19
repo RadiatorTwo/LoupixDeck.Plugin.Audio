@@ -16,6 +16,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
 
     private readonly IAudioService _audio;
     private readonly AudioFolderGrid _grid;
+    private readonly IPluginHost _host;
     private readonly Dictionary<int, RotaryOverride> _rotaries;
 
     private IReadOnlyList<AudioSessionInfo> _sessions = [];
@@ -23,10 +24,11 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private string? _rendered;
     private Timer? _refresh;
 
-    internal AudioMixerFolderProvider(IAudioService audio, AudioFolderGrid grid)
+    internal AudioMixerFolderProvider(IAudioService audio, AudioFolderGrid grid, IPluginHost host)
     {
         _audio = audio;
         _grid = grid;
+        _host = host;
         _rotaries = new Dictionary<int, RotaryOverride>
         {
             [0] = new RotaryOverride
@@ -38,7 +40,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         };
     }
 
-    public override string Title => "Mixer";
+    public override string Title => _host.Tr("Mixer");
 
     public override IReadOnlyDictionary<int, RotaryOverride> RotaryOverrides => _rotaries;
 
@@ -96,7 +98,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
             entries.Add(new FolderEntry
             {
                 SlotIndex = 0,
-                Text = "No audio",
+                Text = _host.Tr("No audio"),
                 TextSize = 14,
                 BackColor = PluginColor.FromRgb(0x30, 0x30, 0x30)
             });

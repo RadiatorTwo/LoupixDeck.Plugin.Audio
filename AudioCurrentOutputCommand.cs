@@ -64,7 +64,7 @@ internal sealed class AudioCurrentOutputCommand(
     public Task Execute(CommandContext ctx)
     {
         AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
-        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Render, aliasStore, visibility, grid));
+        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Render, aliasStore, visibility, grid, ctx.Host));
         return Task.CompletedTask;
     }
 }

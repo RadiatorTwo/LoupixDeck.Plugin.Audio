@@ -30,4 +30,7 @@ Get-ChildItem $publishOutput -Filter "*.dll" |
 Copy-Item "$publishOutput\$assemblyName.deps.json" $OutputPath
 Copy-Item "$PSScriptRoot\plugin.json"              $OutputPath
 
+# Translation files the host reads from the plugin folder.
+Get-ChildItem $PSScriptRoot -Filter "strings.*.json" | Copy-Item -Destination $OutputPath
+
 Write-Host "Release v$version ready at: $OutputPath"

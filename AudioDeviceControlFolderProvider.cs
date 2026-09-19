@@ -14,6 +14,7 @@ public sealed class AudioDeviceControlFolderProvider : FolderProviderBase
     private readonly AudioEndpointInfo _endpoint;
     private readonly AudioEndpointKind _kind;
     private readonly AudioAliasStore _aliasStore;
+    private readonly IPluginHost _host;
 
     private IDisposable? _subscription;
     private float _currentVolume;
@@ -22,12 +23,13 @@ public sealed class AudioDeviceControlFolderProvider : FolderProviderBase
     private readonly Dictionary<int, RotaryOverride> _rotaries;
 
     public AudioDeviceControlFolderProvider(IAudioService audio, AudioEndpointInfo endpoint,
-        AudioEndpointKind kind, AudioAliasStore aliasStore)
+        AudioEndpointKind kind, AudioAliasStore aliasStore, IPluginHost host)
     {
         _audio = audio;
         _endpoint = endpoint;
         _kind = kind;
         _aliasStore = aliasStore;
+        _host = host;
 
         _rotaries = new Dictionary<int, RotaryOverride>
         {
@@ -85,7 +87,7 @@ public sealed class AudioDeviceControlFolderProvider : FolderProviderBase
             new FolderEntry
             {
                 SlotIndex = 1,
-                Text = _currentMute ? "Unmute" : "Mute",
+                Text = _host.Tr(_currentMute ? "Unmute" : "Mute"),
                 BackColor = _currentMute
                     ? PluginColor.FromRgb(0x70, 0x20, 0x20)
                     : PluginColor.FromRgb(0x30, 0x30, 0x30),
@@ -95,7 +97,7 @@ public sealed class AudioDeviceControlFolderProvider : FolderProviderBase
             new FolderEntry
             {
                 SlotIndex = 2,
-                Text = isDefault ? "Is Default" : "Set Default",
+                Text = _host.Tr(isDefault ? "Is Default" : "Set Default"),
                 BackColor = isDefault
                     ? PluginColor.FromRgb(0x20, 0x60, 0x30)
                     : PluginColor.FromRgb(0x30, 0x30, 0x30),
