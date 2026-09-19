@@ -39,17 +39,25 @@ internal sealed class AudioCurrentOutputCommand(
 
     public string GetText(CommandContext ctx)
     {
+        string label;
         lock (CacheLock)
         {
             long now = Stopwatch.GetTimestamp();
             if (_cachedLabel != null && Stopwatch.GetElapsedTime(_cachedAtTimestamp, now) < UpdateInterval)
-                return _cachedLabel;
-
-            string label = ResolveLabel();
-            _cachedLabel = label;
-            _cachedAtTimestamp = now;
-            return label;
+            {
+                label = _cachedLabel;
+            }
+            else
+            {
+                label = ResolveLabel();
+                _cachedLabel = label;
+                _cachedAtTimestamp = now;
+            }
         }
+
+        // Translated on the way out, not into the cache: a language switch has to reach a label
+        // that is already cached. Device names come from the OS and stay as they are.
+        return label == NoDeviceLabel ? ctx.Host.Tr(NoDeviceLabel) : label;
     }
 
     private string ResolveLabel()
