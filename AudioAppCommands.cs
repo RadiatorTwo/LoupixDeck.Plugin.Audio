@@ -73,7 +73,8 @@ internal static class AudioAppParameter
     /// playing anything looks like from here.
     /// </summary>
     public static void ReportNoSession(CommandContext ctx, string appId) =>
-        AudioDeviceParameter.ShowOverlay(ctx, $"{appId}: no audio");
+        // The app id is a value, so only the fixed part is a key.
+        AudioDeviceParameter.ShowOverlay(ctx, string.Format(ctx.Host.Tr("{0}: no audio"), appId));
 
     public static int ResolveInt(CommandContext ctx, int fallback)
     {
