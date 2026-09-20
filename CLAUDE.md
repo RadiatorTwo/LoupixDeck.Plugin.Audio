@@ -1,6 +1,8 @@
 # LoupixDeck.Plugin.Audio
 
-LoupixDeck-Plugin. Erstellt mit dem `create-loupix-plugin` Skill.
+Audio-Plugin für LoupixDeck: Auswahl des aktiven Ausgabe-/Eingabegeräts, Lautstärke und
+Stummschaltung, ein Mixer je Anwendung, Sound-Wiedergabe und Lautstärkebalken auf der
+Seitenleiste. Windows über WASAPI, Linux über `pactl`.
 
 ## Referenz-Verzeichnisse
 
@@ -10,19 +12,17 @@ Diese Ordner liegen lokal und enthalten alles, was zum Verständnis und zur Entw
   Erste Anlaufstelle für SDK-Konzepte, Lifecycle, Manifest, Commands, Settings, Folder-Provider.
 - **SDK (Quellcode):** `C:\!Code\LoupixDeck.PluginSdk`
   Enthält die Basisklassen (`LoupixPlugin`), Interfaces (`IPluginCommand`, `IPluginHost`, `IDisplayCommand`, `IFolderProvider`, `IPluginSettingsPage`). Gebaut wird hier gegen das Paket von nuget.org; für einen unveröffentlichten SDK-Stand den lokalen Feed unter `nupkg\` per `nuget.config` oder `dotnet restore --source` hinzufügen.
-- **Host-Software (LoupixDeck):** `C:\!Code\LoupixDeck`
-  Lädt das Plugin zur Laufzeit. Hier liegt der `PluginManager` und die Logik für Plugin-Discovery, Manifest-Parsing und Command-Ausführung.
-- **Referenz-Plugin (vollständiges Beispiel):** `C:\!Code\LoupixDeck.Plugin.Audio`
-  Funktionierendes Plugin mit Commands, Folder-Providern, Settings-Page und Plattform-spezifischen Services. Als Vorlage für komplexere Features verwenden.
+- **Host-Software (LoupixDeck):** `C:\!Code\LoupixDeckMerges`
+  Lädt das Plugin zur Laufzeit. Hier liegt der `PluginManager` und die Logik für Plugin-Discovery, Manifest-Parsing und Command-Ausführung. Das SDK steckt darin als Submodul unter `LoupixDeck.PluginSdk\`.
 
 ## Plugin-Grundgerüst
 
 - **Assembly-/Ordnername:** `LoupixDeck.Plugin.Audio` (Konvention: `LoupixDeck.Plugin.<Name>`)
 - **Namespace:** `LoupixDeck.Plugin.Audio`
 - **Plugin-Klasse:** `AudioPlugin` erbt von `LoupixPlugin`
-- **Manifest:** `plugin.json` (id = `spotifypremium`, sdkVersion = `1.4`, entryAssembly = `LoupixDeck.Plugin.SpotifyPremium.dll`)
+- **Manifest:** `plugin.json` (id = `audio`, sdkVersion = `1.24`, entryAssembly = `LoupixDeck.Plugin.Audio.dll`)
 - **Target Framework:** `net9.0`
-- **SDK-Paket:** `LoupixDeck.PluginSdk` 1.4.0 mit `<ExcludeAssets>runtime</ExcludeAssets>` — der Host stellt die SDK-DLL bereit, nie mit ausliefern.
+- **SDK-Paket:** `LoupixDeck.PluginSdk` 1.24.0 von nuget.org, mit `<ExcludeAssets>runtime</ExcludeAssets>` — der Host stellt die SDK-DLL bereit, nie mit ausliefern.
 
 ## Build & Deploy
 
@@ -30,7 +30,7 @@ Diese Ordner liegen lokal und enthalten alles, was zum Verständnis und zur Entw
 dotnet build -c Release
 ```
 
-Output landet in `bin\Release\` (kein TFM-Suffix wegen `AppendTargetFrameworkToOutputPath=false`). Zum Testen den Inhalt nach `<LoupixDeck>\plugins\spotifypremium\` kopieren — `plugin.json` muss dort neben der DLL liegen.
+Output landet in `bin\Release\` (kein TFM-Suffix wegen `AppendTargetFrameworkToOutputPath=false`). Zum Testen den Inhalt nach `%APPDATA%\LoupixDeck\plugins\audio\` kopieren — `plugin.json` und die `strings.<code>.json` müssen dort neben der DLL liegen. `release.ps1` baut denselben Satz Dateien nach `dist\audio\`.
 
 ## Pflicht-Member von `LoupixPlugin`
 
@@ -43,11 +43,11 @@ Output landet in `bin\Release\` (kein TFM-Suffix wegen `AppendTargetFrameworkToO
 
 Jeder Command implementiert `IPluginCommand`:
 
-- `Descriptor` — `CommandName` (stabile öffentliche ID, Konvention: `SpotifyPremium.<Feature>`), `DisplayName`, `Group` (= `"SpotifyPremium"`).
+- `Descriptor` — `CommandName` (stabile öffentliche ID, Konvention: `Audio.<Feature>`), `DisplayName`, `Group` (= `"Audio"`).
 - `SupportedTargets` — `ButtonTargets.All` oder einschränken.
 - `Execute(CommandContext ctx)` — gibt `Task` zurück, läuft im Background-Thread, MUSS `try/catch` umschließen, darf nicht blockieren.
 
-Für dynamisch beschriftete Buttons zusätzlich `IDisplayCommand` implementieren. Für Touchscreen-Ordner `IFolderProvider`. Für Settings-UI `IPluginSettingsPage`. Konkrete Patterns: siehe Referenz-Plugin `LoupixDeck.Plugin.Audio`.
+Für dynamisch beschriftete Buttons zusätzlich `IDisplayCommand` implementieren. Für Touchscreen-Ordner `IFolderProvider`. Für Settings-UI `IPluginSettingsPage`.
 
 ## Wichtige Regeln
 
@@ -56,6 +56,29 @@ Für dynamisch beschriftete Buttons zusätzlich `IDisplayCommand` implementieren
 3. `CommandName` ist eine **stabile öffentliche API** — nach Release nicht mehr umbenennen.
 4. `Metadata.Id` (lowercase), `plugin.json#id` und der Plugin-Ordnername unter `plugins\` müssen identisch sein.
 5. `Execute` läuft **nicht** auf dem UI-Thread — keine Avalonia-Objekte direkt anfassen.
+
+## Übersetzungen
+
+Sichtbare Texte sind auf Englisch verfasst; `strings.de.json` neben `plugin.json` liefert die
+deutsche Fassung, mit dem englischen Text als Schlüssel. Zwei Wege, je nachdem woher der Text
+kommt:
+
+- **Deklarativ** — alles in den Descriptors (Befehlsnamen, Gruppen, Beschreibungen, Settings-Labels,
+  Menüknoten) übersetzt der Host beim Anzeigen. Dafür ist kein Code nötig, und ein Sprachwechsel
+  wirkt ohne Neustart.
+- **Zur Laufzeit gebaut** — Ordnertitel, Kacheltexte, Overlays. Die erreichen den Host nie als
+  Descriptor, also `IPluginHost.Tr(...)` selbst aufrufen. `AudioPlugin` hat dafür einen `Tr`-Helfer,
+  die Provider bekommen den Host durchgereicht.
+
+**Interpolierte Strings können kein Schlüssel sein** — der Wert ist Teil des Textes und trifft
+nie einen Eintrag. Den festen Teil übersetzen und den Wert danach einsetzen:
+
+```csharp
+string.Format(_host.Tr("Hide {0}"), name)
+```
+
+Nicht übersetzt werden Gerätenamen und App-Namen vom Betriebssystem, Prozentanzeigen und Logtexte.
+Neue sichtbare Strings gehören beim Anlegen in `strings.de.json`.
 
 ## Parametrisierte Commands (IMenuContributor)
 
