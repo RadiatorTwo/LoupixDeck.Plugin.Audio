@@ -20,9 +20,9 @@ Diese Ordner liegen lokal und enthalten alles, was zum Verständnis und zur Entw
 - **Assembly-/Ordnername:** `LoupixDeck.Plugin.Audio` (Konvention: `LoupixDeck.Plugin.<Name>`)
 - **Namespace:** `LoupixDeck.Plugin.Audio`
 - **Plugin-Klasse:** `AudioPlugin` erbt von `LoupixPlugin`
-- **Manifest:** `plugin.json` (id = `audio`, sdkVersion = `1.24`, entryAssembly = `LoupixDeck.Plugin.Audio.dll`)
+- **Manifest:** `plugin.json` (id = `audio`, sdkVersion = `1.25`, entryAssembly = `LoupixDeck.Plugin.Audio.dll`)
 - **Target Framework:** `net9.0`
-- **SDK-Paket:** `LoupixDeck.PluginSdk` 1.24.0 von nuget.org, mit `<ExcludeAssets>runtime</ExcludeAssets>` — der Host stellt die SDK-DLL bereit, nie mit ausliefern.
+- **SDK-Paket:** `LoupixDeck.PluginSdk` 1.25.0 von nuget.org, mit `<ExcludeAssets>runtime</ExcludeAssets>` — der Host stellt die SDK-DLL bereit, nie mit ausliefern.
 
 ## Build & Deploy
 

@@ -32,7 +32,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         Id = "audio",
         Name = "Audio",
-        Version = new Version(1, 13, 0),
+        Version = new Version(1, 14, 0),
         SdkVersion = SdkInfo.Version,
         Author = "RadiatorTwo",
         Description = "Pick the active audio output/input device and adjust volume and mute from the device."
@@ -102,15 +102,6 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     ];
 
     /// <summary>
-    /// The dial presets this plugin offers. Rebuilt on every call, so the device presets follow
-    /// the endpoints that actually exist right now — plug in a headset and its preset is there.
-    /// </summary>
-    /// <remarks>
-    /// The master preset binds the default-device sentinel rather than an endpoint id, so it keeps
-    /// meaning "the speakers I am listening on" after the user switches their default output.
-    /// The per-device presets bind the endpoint id, which is the point of having them.
-    /// </remarks>
-    /// <summary>
     /// Moves dials the user configured before <c>Audio.Volume</c> existed onto it. Without this
     /// they would sit on the old triad forever: it still works, but a dial there runs one
     /// command per detent and cannot report its level, and nothing would ever retire the old
@@ -156,6 +147,15 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         };
     }
 
+    /// <summary>
+    /// The dial presets this plugin offers. Rebuilt on every call, so the device presets follow
+    /// the endpoints that actually exist right now — plug in a headset and its preset is there.
+    /// </summary>
+    /// <remarks>
+    /// The master preset binds the default-device sentinel rather than an endpoint id, so it keeps
+    /// meaning "the speakers I am listening on" after the user switches their default output.
+    /// The per-device presets bind the endpoint id, which is the point of having them.
+    /// </remarks>
     public override IEnumerable<DialPresetDescriptor> GetDialPresets()
     {
         yield return DevicePreset(
