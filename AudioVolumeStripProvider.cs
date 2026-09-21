@@ -225,7 +225,13 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
     private bool ReResolve(Bar bar)
     {
         string? current;
-        try { current = AudioDeviceParameter.ResolveEndpointId(AudioDeviceParameter.DefaultDeviceId, _audio); }
+        try
+        {
+            // The event is the notification that something moved, so the memoised default is
+            // exactly what must not be trusted here.
+            AudioDeviceParameter.InvalidateDefaultEndpoint();
+            current = AudioDeviceParameter.ResolveEndpointId(AudioDeviceParameter.DefaultDeviceId, _audio);
+        }
         catch { return false; }
 
         if (current == null || string.Equals(current, bar.DeviceId, StringComparison.Ordinal))

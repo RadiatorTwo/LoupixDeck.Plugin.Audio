@@ -32,7 +32,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         Id = "audio",
         Name = "Audio",
-        Version = new Version(1, 14, 0),
+        Version = new Version(1, 14, 1),
         SdkVersion = SdkInfo.Version,
         Author = "RadiatorTwo",
         Description = "Pick the active audio output/input device and adjust volume and mute from the device."
@@ -690,6 +690,7 @@ internal sealed class UnsupportedAudioService : IAudioService
 {
     public bool IsSupported => false;
     public IReadOnlyList<AudioEndpointInfo> GetEndpoints(AudioEndpointKind kind) => [];
+    public string? GetDefaultEndpointId(AudioEndpointKind kind) => null;
     public float GetVolume(string endpointId) => 0f;
     public void SetVolume(string endpointId, float scalar01) { }
     public bool GetMute(string endpointId) => false;

@@ -73,7 +73,7 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
         {
             try
             {
-                result.Add(new AudioEndpointInfo(d.ID, d.FriendlyName, d.ID == defaultId));
+                result.Add(new AudioEndpointInfo(d.ID, FriendlyNameOf(d), d.ID == defaultId));
             }
             finally
             {
@@ -81,6 +81,63 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
             }
         }
         return result;
+    }
+
+    /// <summary>
+    /// The endpoint's friendly name, memoised per endpoint id.
+    /// <para>
+    /// Reading it goes to the device's property store and costs ~27 ms per endpoint, which is
+    /// the whole price of enumerating: eleven endpoints take ~290 ms while the enumeration
+    /// itself is under a millisecond. The dial preset menu builds its list per open - twice, as
+    /// it happens - so that price landed on every right-click. The name of an endpoint that
+    /// exists does not change on its own; a rename or a new device shows up when the entry
+    /// expires.
+    /// </para>
+    /// </summary>
+    private string FriendlyNameOf(MMDevice device)
+    {
+        string id = device.ID;
+        long now = Environment.TickCount64;
+
+        lock (_friendlyNameLock)
+        {
+            if (_friendlyNames.TryGetValue(id, out var cached) && now - cached.Stamp < FriendlyNameCacheMs)
+                return cached.Name;
+        }
+
+        string name;
+        try { name = device.FriendlyName; }
+        catch { return id; }
+
+        lock (_friendlyNameLock)
+        {
+            _friendlyNames[id] = (name, now);
+        }
+
+        return name;
+    }
+
+    /// <summary>How long a friendly name is reused. Long enough that opening a menu is free,
+    /// short enough that a renamed device corrects itself without a restart.</summary>
+    private const long FriendlyNameCacheMs = 60_000;
+
+    private readonly Lock _friendlyNameLock = new();
+    private readonly Dictionary<string, (string Name, long Stamp)> _friendlyNames = new(StringComparer.Ordinal);
+
+    public string? GetDefaultEndpointId(AudioEndpointKind kind)
+    {
+        using var enumerator = new MMDeviceEnumerator();
+        var flow = kind == AudioEndpointKind.Render ? DataFlow.Render : DataFlow.Capture;
+        try
+        {
+            using var device = enumerator.GetDefaultAudioEndpoint(flow, Role.Multimedia);
+            return device.ID;
+        }
+        catch
+        {
+            // No default endpoint configured for that flow.
+            return null;
+        }
     }
 
     public float GetVolume(string endpointId)
@@ -125,11 +182,15 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
             return EmptyDisposable.Instance;
         }
 
-        AudioEndpointVolumeNotificationDelegate handler = data =>
-        {
-            try { onChange(data.MasterVolume, data.Muted); }
-            catch { /* swallow callback failure */ }
-        };
+        // WASAPI raises this on its own notification thread, and a handler that calls back into
+        // the endpoint API from it kills the registration: after the first notification the
+        // client is never called again (measured: 20 notifications for 10 volume changes with an
+        // inert handler, 1 with a handler that reads volume/mute back). Consumers legitimately
+        // read the endpoint - the strip bars re-resolve the default device and the host renders
+        // the dial value - so the notification is handed to a pump that runs them off this
+        // thread, and the thread returns to WASAPI immediately.
+        var pump = new NotificationPump(onChange);
+        AudioEndpointVolumeNotificationDelegate handler = data => pump.Post(data.MasterVolume, data.Muted);
 
         try
         {
@@ -142,7 +203,7 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
             return EmptyDisposable.Instance;
         }
 
-        return new VolumeSubscription(device, enumerator, handler);
+        return new VolumeSubscription(device, enumerator, handler, pump);
     }
 
     public void PlayFile(string filePath, string? endpointId)
@@ -665,13 +726,15 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
         private MMDevice? _device;
         private MMDeviceEnumerator? _enumerator;
         private AudioEndpointVolumeNotificationDelegate? _handler;
+        private NotificationPump? _pump;
 
         public VolumeSubscription(MMDevice device, MMDeviceEnumerator enumerator,
-            AudioEndpointVolumeNotificationDelegate handler)
+            AudioEndpointVolumeNotificationDelegate handler, NotificationPump pump)
         {
             _device = device;
             _enumerator = enumerator;
             _handler = handler;
+            _pump = pump;
         }
 
         public void Dispose()
@@ -683,11 +746,74 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
             }
             catch { /* ignore */ }
 
+            _pump?.Stop();
             _device?.Dispose();
             _enumerator?.Dispose();
             _device = null;
             _enumerator = null;
             _handler = null;
+            _pump = null;
+        }
+    }
+
+    /// <summary>
+    /// Carries a volume notification off the WASAPI notification thread to the subscriber.
+    /// <para>
+    /// Conflating rather than queueing: a dial turn produces a notification per detent and the
+    /// subscriber only ever wants the current value, so a pending notification is overwritten
+    /// instead of piling up worker tasks behind a render. At most one worker runs at a time, so
+    /// the subscriber still sees its values in order.
+    /// </para>
+    /// </summary>
+    private sealed class NotificationPump(Action<float, bool> onChange)
+    {
+        private readonly object _gate = new();
+        private (float Volume, bool Muted)? _pending;
+        private bool _running;
+        private bool _stopped;
+
+        public void Post(float volume, bool muted)
+        {
+            lock (_gate)
+            {
+                if (_stopped) return;
+                _pending = (volume, muted);
+                if (_running) return;
+                _running = true;
+            }
+
+            Task.Run(Drain);
+        }
+
+        public void Stop()
+        {
+            lock (_gate)
+            {
+                _stopped = true;
+                _pending = null;
+            }
+        }
+
+        private void Drain()
+        {
+            while (true)
+            {
+                (float Volume, bool Muted) next;
+                lock (_gate)
+                {
+                    if (_stopped || _pending == null)
+                    {
+                        _running = false;
+                        return;
+                    }
+
+                    next = _pending.Value;
+                    _pending = null;
+                }
+
+                try { onChange(next.Volume, next.Muted); }
+                catch { /* swallow subscriber failure */ }
+            }
         }
     }
 

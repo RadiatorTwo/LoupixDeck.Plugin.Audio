@@ -44,6 +44,19 @@ public sealed class LinuxAudioService : IAudioService
         return ParseEndpoints(listOutput, defaultName, kind);
     }
 
+    public string? GetDefaultEndpointId(AudioEndpointKind kind)
+    {
+        if (!IsSupported) return null;
+
+        var noun = kind == AudioEndpointKind.Render ? "sink" : "source";
+        var name = RunPactl($"get-default-{noun}").Trim();
+        if (string.IsNullOrEmpty(name)) return null;
+
+        // Same "sink:NAME" / "source:NAME" encoding GetEndpoints reports, so the id is
+        // interchangeable with a bound one.
+        return $"{noun}:{name}";
+    }
+
     public float GetVolume(string endpointId)
     {
         if (!IsSupported) return 0f;

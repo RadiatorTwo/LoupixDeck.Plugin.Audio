@@ -43,8 +43,57 @@ internal static class AudioDeviceParameter
             return id;
 
         // Render only: the default-device sentinel exists for "the speakers I am listening on".
-        return audio?.GetEndpoints(AudioEndpointKind.Render).FirstOrDefault(ep => ep.IsDefault)?.Id;
+        return ResolveDefaultRenderId(audio);
     }
+
+    /// <summary>
+    /// The current default render endpoint, memoised for <see cref="DefaultCacheMs"/>.
+    /// <para>
+    /// This runs on the side-strip render path: a dial's adjustment value is pulled once per
+    /// frame per dial, and both the host's indicator and the plugin's own bar pull it. Asking
+    /// the backend every time costs a full endpoint enumeration per pull - on Windows that
+    /// reads every endpoint's friendly name from the property store (~220 ms for eight
+    /// endpoints), on Linux it spawns two pactl processes - which is what made a dial turn
+    /// stall the strip queue for seconds. The dedicated default-id query is ~1 ms, and the
+    /// window collapses the several pulls of one frame onto a single backend call.
+    /// </para>
+    /// </summary>
+    private static string? ResolveDefaultRenderId(IAudioService? audio)
+    {
+        if (audio == null) return null;
+
+        lock (_defaultLock)
+        {
+            if (_defaultRenderId != null && Environment.TickCount64 - _defaultRenderTick < DefaultCacheMs)
+                return _defaultRenderId;
+
+            string? resolved = audio.GetDefaultEndpointId(AudioEndpointKind.Render);
+            if (resolved == null) return null;
+
+            _defaultRenderId = resolved;
+            _defaultRenderTick = Environment.TickCount64;
+            return resolved;
+        }
+    }
+
+    /// <summary>
+    /// Drops the memoised default endpoint, so the next resolution asks the backend again.
+    /// Called by a consumer that just learned the default may have moved and needs the new
+    /// endpoint now rather than at the end of the window.
+    /// </summary>
+    public static void InvalidateDefaultEndpoint()
+    {
+        lock (_defaultLock) _defaultRenderId = null;
+    }
+
+    /// <summary>How long a resolved default endpoint is reused. Short enough that a default
+    /// switched outside the app is picked up on its own, long enough that the several pulls of
+    /// one strip frame cost one backend call.</summary>
+    private const long DefaultCacheMs = 1000;
+
+    private static readonly object _defaultLock = new();
+    private static string? _defaultRenderId;
+    private static long _defaultRenderTick;
 
     /// <summary>True when the bound id is the default-device sentinel rather than an endpoint.</summary>
     public static bool IsDefaultSentinel(string? id) =>
