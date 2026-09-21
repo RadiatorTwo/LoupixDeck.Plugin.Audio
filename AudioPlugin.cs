@@ -58,6 +58,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             new AudioOutputFolderCommand(_audio, _aliasStore, _visibility),
             new AudioCurrentOutputCommand(_audio, _aliasStore, _visibility),
             new AudioInputFolderCommand(_audio, _aliasStore, _visibility),
+            new AudioVolumeCommand(_audio),
+            new AudioAppVolumeCommand(_audio),
             new AudioVolumeUpCommand(_audio),
             new AudioVolumeDownCommand(_audio),
             new AudioMuteToggleCommand(_audio),
