@@ -83,6 +83,22 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
         return result;
     }
 
+    public string? GetDefaultEndpointId(AudioEndpointKind kind)
+    {
+        using var enumerator = new MMDeviceEnumerator();
+        var flow = kind == AudioEndpointKind.Render ? DataFlow.Render : DataFlow.Capture;
+        try
+        {
+            using var device = enumerator.GetDefaultAudioEndpoint(flow, Role.Multimedia);
+            return device.ID;
+        }
+        catch
+        {
+            // No default endpoint configured for that flow.
+            return null;
+        }
+    }
+
     public float GetVolume(string endpointId)
     {
         using var dev = GetDevice(endpointId);

@@ -10,6 +10,14 @@ public interface IAudioService
 
     IReadOnlyList<AudioEndpointInfo> GetEndpoints(AudioEndpointKind kind);
 
+    /// <summary>
+    /// Id of the endpoint the system currently treats as the default of that kind, or null when
+    /// there is none. Separate from <see cref="GetEndpoints"/> because resolving the default is
+    /// on the side-strip render path: the full enumeration reads every endpoint's friendly name
+    /// from the property store, which costs orders of magnitude more than the default id alone.
+    /// </summary>
+    string? GetDefaultEndpointId(AudioEndpointKind kind);
+
     /// <summary>0..1 scalar.</summary>
     float GetVolume(string endpointId);
 
