@@ -73,7 +73,7 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
         {
             try
             {
-                result.Add(new AudioEndpointInfo(d.ID, d.FriendlyName, d.ID == defaultId));
+                result.Add(new AudioEndpointInfo(d.ID, FriendlyNameOf(d), d.ID == defaultId));
             }
             finally
             {
@@ -82,6 +82,47 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
         }
         return result;
     }
+
+    /// <summary>
+    /// The endpoint's friendly name, memoised per endpoint id.
+    /// <para>
+    /// Reading it goes to the device's property store and costs ~27 ms per endpoint, which is
+    /// the whole price of enumerating: eleven endpoints take ~290 ms while the enumeration
+    /// itself is under a millisecond. The dial preset menu builds its list per open - twice, as
+    /// it happens - so that price landed on every right-click. The name of an endpoint that
+    /// exists does not change on its own; a rename or a new device shows up when the entry
+    /// expires.
+    /// </para>
+    /// </summary>
+    private string FriendlyNameOf(MMDevice device)
+    {
+        string id = device.ID;
+        long now = Environment.TickCount64;
+
+        lock (_friendlyNameLock)
+        {
+            if (_friendlyNames.TryGetValue(id, out var cached) && now - cached.Stamp < FriendlyNameCacheMs)
+                return cached.Name;
+        }
+
+        string name;
+        try { name = device.FriendlyName; }
+        catch { return id; }
+
+        lock (_friendlyNameLock)
+        {
+            _friendlyNames[id] = (name, now);
+        }
+
+        return name;
+    }
+
+    /// <summary>How long a friendly name is reused. Long enough that opening a menu is free,
+    /// short enough that a renamed device corrects itself without a restart.</summary>
+    private const long FriendlyNameCacheMs = 60_000;
+
+    private readonly Lock _friendlyNameLock = new();
+    private readonly Dictionary<string, (string Name, long Stamp)> _friendlyNames = new(StringComparer.Ordinal);
 
     public string? GetDefaultEndpointId(AudioEndpointKind kind)
     {
