@@ -64,7 +64,8 @@ public interface IAudioService
 
     /// <summary>
     /// AppId of the application owning the foreground window, or null when it cannot be
-    /// determined. Linux always returns null — the host's own focus detection is X11-only.
+    /// determined. On Linux this covers X11 and XWayland windows (resolved through xprop); a
+    /// native Wayland window exposes no such property, so it resolves to null.
     /// </summary>
     string? GetForegroundAppId();
 

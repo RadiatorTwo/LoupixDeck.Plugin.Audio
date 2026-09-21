@@ -32,7 +32,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         Id = "audio",
         Name = "Audio",
-        Version = new Version(1, 13, 0),
+        Version = new Version(1, 14, 0),
         SdkVersion = SdkInfo.Version,
         Author = "RadiatorTwo",
         Description = "Pick the active audio output/input device and adjust volume and mute from the device."
@@ -58,6 +58,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             new AudioOutputFolderCommand(_audio, _aliasStore, _visibility),
             new AudioCurrentOutputCommand(_audio, _aliasStore, _visibility),
             new AudioInputFolderCommand(_audio, _aliasStore, _visibility),
+            new AudioVolumeCommand(_audio),
+            new AudioAppVolumeCommand(_audio),
             new AudioVolumeUpCommand(_audio),
             new AudioVolumeDownCommand(_audio),
             new AudioMuteToggleCommand(_audio),
@@ -100,6 +102,52 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     ];
 
     /// <summary>
+    /// Moves dials the user configured before <c>Audio.Volume</c> existed onto it. Without this
+    /// they would sit on the old triad forever: it still works, but a dial there runs one
+    /// command per detent and cannot report its level, and nothing would ever retire the old
+    /// shape. The host runs each rule at most once per config and only on a dial that carries
+    /// exactly the old binding, so a dial the user has since composed differently is safe.
+    /// </summary>
+    public override IEnumerable<CommandMigration> GetCommandMigrations()
+    {
+        yield return new CommandMigration
+        {
+            Id = "volume-dial",
+            From = new Dictionary<RotaryAction, string>
+            {
+                [RotaryAction.CounterClockwise] = "Audio.VolumeDown",
+                [RotaryAction.Clockwise] = "Audio.VolumeUp",
+                [RotaryAction.Press] = "Audio.MuteToggle",
+            },
+            To = "Audio.Volume",
+            // The endpoint and the user's step size carry over; the mute command never had a
+            // step, so the value comes from whichever turn slot declared one.
+            Parameters = new Dictionary<string, string>
+            {
+                [AudioDeviceParameter.DeviceIdName] = $"{{{AudioDeviceParameter.DeviceIdName}}}",
+                [AudioDeviceParameter.StepName] = $"{{{AudioDeviceParameter.StepName}}}",
+            },
+        };
+
+        yield return new CommandMigration
+        {
+            Id = "app-volume-dial",
+            From = new Dictionary<RotaryAction, string>
+            {
+                [RotaryAction.CounterClockwise] = "Audio.AppVolumeDown",
+                [RotaryAction.Clockwise] = "Audio.AppVolumeUp",
+                [RotaryAction.Press] = "Audio.AppMuteToggle",
+            },
+            To = "Audio.AppVolume",
+            Parameters = new Dictionary<string, string>
+            {
+                [AudioAppParameter.AppIdName] = $"{{{AudioAppParameter.AppIdName}}}",
+                [AudioAppParameter.StepName] = $"{{{AudioAppParameter.StepName}}}",
+            },
+        };
+    }
+
+    /// <summary>
     /// The dial presets this plugin offers. Rebuilt on every call, so the device presets follow
     /// the endpoints that actually exist right now — plug in a headset and its preset is there.
     /// </summary>
@@ -135,17 +183,17 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             {
                 [RotaryAction.CounterClockwise] = new()
                 {
-                    CommandName = "Audio.AppVolumeDown",
+                    CommandName = "Audio.AppVolume",
                     Parameters = foreground,
                 },
                 [RotaryAction.Clockwise] = new()
                 {
-                    CommandName = "Audio.AppVolumeUp",
+                    CommandName = "Audio.AppVolume",
                     Parameters = foreground,
                 },
                 [RotaryAction.Press] = new()
                 {
-                    CommandName = "Audio.AppMuteToggle",
+                    CommandName = "Audio.AppVolume",
                     Parameters = foreground,
                 },
             },
@@ -172,17 +220,17 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             {
                 [RotaryAction.CounterClockwise] = new()
                 {
-                    CommandName = "Audio.VolumeDown",
+                    CommandName = "Audio.Volume",
                     Parameters = device,
                 },
                 [RotaryAction.Clockwise] = new()
                 {
-                    CommandName = "Audio.VolumeUp",
+                    CommandName = "Audio.Volume",
                     Parameters = device,
                 },
                 [RotaryAction.Press] = new()
                 {
-                    CommandName = "Audio.MuteToggle",
+                    CommandName = "Audio.Volume",
                     Parameters = device,
                 },
             },
@@ -283,11 +331,13 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             children.Add(new MenuNode
             {
                 Name = "Volume Control",
+                // One adjustment command on all three gestures: the tick delta carries the
+                // direction, the press resets (mutes), and the dial can report its level.
                 RotaryGroup = new Dictionary<RotaryAction, MenuCommandRef>
                 {
-                    [RotaryAction.CounterClockwise] = new() { CommandName = "Audio.AppVolumeDown", Parameters = AppParam() },
-                    [RotaryAction.Clockwise] = new() { CommandName = "Audio.AppVolumeUp", Parameters = AppParam() },
-                    [RotaryAction.Press] = new() { CommandName = "Audio.AppMuteToggle", Parameters = AppParam() },
+                    [RotaryAction.CounterClockwise] = new() { CommandName = "Audio.AppVolume", Parameters = AppParam() },
+                    [RotaryAction.Clockwise] = new() { CommandName = "Audio.AppVolume", Parameters = AppParam() },
+                    [RotaryAction.Press] = new() { CommandName = "Audio.AppVolume", Parameters = AppParam() },
                 },
             });
         }
@@ -408,12 +458,13 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             children.Add(new MenuNode
             {
                 Name = "Volume Control",
+                // One adjustment command on all three gestures: the tick delta carries the
+                // direction, the press mutes, and the dial can report its level.
                 RotaryGroup = new Dictionary<RotaryAction, MenuCommandRef>
                 {
-                    // Counter-clockwise lowers, clockwise raises, press mutes.
-                    [RotaryAction.CounterClockwise] = new() { CommandName = "Audio.VolumeDown", Parameters = DeviceParam() },
-                    [RotaryAction.Clockwise] = new() { CommandName = "Audio.VolumeUp", Parameters = DeviceParam() },
-                    [RotaryAction.Press] = new() { CommandName = "Audio.MuteToggle", Parameters = DeviceParam() },
+                    [RotaryAction.CounterClockwise] = new() { CommandName = "Audio.Volume", Parameters = DeviceParam() },
+                    [RotaryAction.Clockwise] = new() { CommandName = "Audio.Volume", Parameters = DeviceParam() },
+                    [RotaryAction.Press] = new() { CommandName = "Audio.Volume", Parameters = DeviceParam() },
                 },
             });
         }
