@@ -137,17 +137,17 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             {
                 [RotaryAction.CounterClockwise] = new()
                 {
-                    CommandName = "Audio.AppVolumeDown",
+                    CommandName = "Audio.AppVolume",
                     Parameters = foreground,
                 },
                 [RotaryAction.Clockwise] = new()
                 {
-                    CommandName = "Audio.AppVolumeUp",
+                    CommandName = "Audio.AppVolume",
                     Parameters = foreground,
                 },
                 [RotaryAction.Press] = new()
                 {
-                    CommandName = "Audio.AppMuteToggle",
+                    CommandName = "Audio.AppVolume",
                     Parameters = foreground,
                 },
             },
@@ -174,17 +174,17 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             {
                 [RotaryAction.CounterClockwise] = new()
                 {
-                    CommandName = "Audio.VolumeDown",
+                    CommandName = "Audio.Volume",
                     Parameters = device,
                 },
                 [RotaryAction.Clockwise] = new()
                 {
-                    CommandName = "Audio.VolumeUp",
+                    CommandName = "Audio.Volume",
                     Parameters = device,
                 },
                 [RotaryAction.Press] = new()
                 {
-                    CommandName = "Audio.MuteToggle",
+                    CommandName = "Audio.Volume",
                     Parameters = device,
                 },
             },
@@ -285,11 +285,13 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             children.Add(new MenuNode
             {
                 Name = "Volume Control",
+                // One adjustment command on all three gestures: the tick delta carries the
+                // direction, the press resets (mutes), and the dial can report its level.
                 RotaryGroup = new Dictionary<RotaryAction, MenuCommandRef>
                 {
-                    [RotaryAction.CounterClockwise] = new() { CommandName = "Audio.AppVolumeDown", Parameters = AppParam() },
-                    [RotaryAction.Clockwise] = new() { CommandName = "Audio.AppVolumeUp", Parameters = AppParam() },
-                    [RotaryAction.Press] = new() { CommandName = "Audio.AppMuteToggle", Parameters = AppParam() },
+                    [RotaryAction.CounterClockwise] = new() { CommandName = "Audio.AppVolume", Parameters = AppParam() },
+                    [RotaryAction.Clockwise] = new() { CommandName = "Audio.AppVolume", Parameters = AppParam() },
+                    [RotaryAction.Press] = new() { CommandName = "Audio.AppVolume", Parameters = AppParam() },
                 },
             });
         }
@@ -410,12 +412,13 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             children.Add(new MenuNode
             {
                 Name = "Volume Control",
+                // One adjustment command on all three gestures: the tick delta carries the
+                // direction, the press mutes, and the dial can report its level.
                 RotaryGroup = new Dictionary<RotaryAction, MenuCommandRef>
                 {
-                    // Counter-clockwise lowers, clockwise raises, press mutes.
-                    [RotaryAction.CounterClockwise] = new() { CommandName = "Audio.VolumeDown", Parameters = DeviceParam() },
-                    [RotaryAction.Clockwise] = new() { CommandName = "Audio.VolumeUp", Parameters = DeviceParam() },
-                    [RotaryAction.Press] = new() { CommandName = "Audio.MuteToggle", Parameters = DeviceParam() },
+                    [RotaryAction.CounterClockwise] = new() { CommandName = "Audio.Volume", Parameters = DeviceParam() },
+                    [RotaryAction.Clockwise] = new() { CommandName = "Audio.Volume", Parameters = DeviceParam() },
+                    [RotaryAction.Press] = new() { CommandName = "Audio.Volume", Parameters = DeviceParam() },
                 },
             });
         }
