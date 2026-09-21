@@ -38,7 +38,10 @@ sounds session is listed as "System Sounds".
 `Audio.AppSetVolume` — act on one application, assigned from the command menu
 under Audio → Applications. A binding stores the process name, so it survives
 that application restarting. "Foreground App" follows the focused window on
-Windows; on Linux it does nothing, because focus detection there needs X11.
+Windows, and on Linux for X11 and XWayland windows (resolved with `xprop`, which
+must be installed). A native Wayland window carries no `_NET_WM_PID`, so under a
+Wayland session the dial stays empty for applications that do not go through
+XWayland.
 
 `Audio.SetVolume` / `Audio.AppSetVolume` — set a device or an application to a
 fixed level in percent, editable per assignment.
