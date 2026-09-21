@@ -55,7 +55,18 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
         public string Label = string.Empty;
         public string Fallback = string.Empty;
         public int DialNumber;
+
+        /// <summary>
+        /// The endpoint this bar reads, already expanded from the binding: a dial bound to
+        /// <c>@default</c> carries the endpoint that sentinel currently means, because the audio
+        /// backend rejects the sentinel itself ("No such entity") and would report volume 0 and
+        /// unmuted forever.
+        /// </summary>
         public string? DeviceId;
+
+        /// <summary>The dial follows the default device, so <see cref="DeviceId"/> is re-resolved
+        /// when the backend reports a change instead of being fixed for the session.</summary>
+        public bool FollowsDefault;
         public float Volume;
         public bool Muted;
         public IDisposable? Subscription;
@@ -128,10 +139,12 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
 
         foreach (var rotary in context.Rotaries)
         {
-            var deviceId = AudioStripCommandParser.ExtractDeviceId(rotary);
+            var boundId = AudioStripCommandParser.ExtractDeviceId(rotary);
+            var deviceId = AudioDeviceParameter.ResolveEndpointId(boundId, _audio);
             var bar = new Bar
             {
                 DeviceId = deviceId,
+                FollowsDefault = AudioDeviceParameter.IsDefaultSentinel(boundId),
                 Label = rotary.Label?.Trim() ?? string.Empty,
                 Fallback = deviceId != null && names.TryGetValue(deviceId, out var friendly)
                     ? friendly : string.Empty,
@@ -148,8 +161,19 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
                 {
                     bar.Subscription = _audio.SubscribeVolumeChanges(bar.DeviceId, (vol, mute) =>
                     {
-                        bar.Volume = vol;
-                        bar.Muted = mute;
+                        if (bar.FollowsDefault && ReResolve(bar))
+                        {
+                            // The default device changed under the dial: the values that came
+                            // with the event belong to the endpoint it left behind.
+                            try { bar.Volume = _audio.GetVolume(bar.DeviceId!); bar.Muted = _audio.GetMute(bar.DeviceId!); }
+                            catch { /* endpoint vanished between event and query */ }
+                        }
+                        else
+                        {
+                            bar.Volume = vol;
+                            bar.Muted = mute;
+                        }
+
                         StripChanged?.Invoke(this, EventArgs.Empty);
                     });
                 }
@@ -196,6 +220,21 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
         return true;
     }
 
+    /// <summary>Re-reads the endpoint a default-following bar points at. Returns true when it
+    /// moved to another endpoint.</summary>
+    private bool ReResolve(Bar bar)
+    {
+        string? current;
+        try { current = AudioDeviceParameter.ResolveEndpointId(AudioDeviceParameter.DefaultDeviceId, _audio); }
+        catch { return false; }
+
+        if (current == null || string.Equals(current, bar.DeviceId, StringComparison.Ordinal))
+            return false;
+
+        bar.DeviceId = current;
+        return true;
+    }
+
     /// <summary>Picks the best display name for a dial, resolved at render time so an alias
     /// rename repaints live: an explicit rotary label wins, otherwise the user-defined alias
     /// (falling back to the device's friendly name), otherwise a generic dial number.</summary>
@@ -227,6 +266,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
             ? Math.Clamp((int)(y / (_height / (float)_bars.Count)), 0, _bars.Count - 1)
             : Math.Clamp((int)(x / (_width / (float)_bars.Count)), 0, _bars.Count - 1);
         var bar = _bars[index];
+        if (bar.FollowsDefault) ReResolve(bar);
         if (bar.DeviceId == null) return;
 
         try

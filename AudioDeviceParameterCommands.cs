@@ -27,12 +27,28 @@ internal static class AudioDeviceParameter
         var id = p[0];
         if (string.IsNullOrWhiteSpace(id)) return null;
 
+        return ResolveEndpointId(id, audio);
+    }
+
+    /// <summary>
+    /// Expands the default-device sentinel to the endpoint it currently means. Every consumer
+    /// that talks to the audio backend has to go through this: <c>@default</c> is not an
+    /// endpoint id, so passing it on unresolved silently reads and writes nothing.
+    /// </summary>
+    public static string? ResolveEndpointId(string? id, IAudioService? audio)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return null;
+
         if (!string.Equals(id, DefaultDeviceId, StringComparison.Ordinal))
             return id;
 
         // Render only: the default-device sentinel exists for "the speakers I am listening on".
         return audio?.GetEndpoints(AudioEndpointKind.Render).FirstOrDefault(ep => ep.IsDefault)?.Id;
     }
+
+    /// <summary>True when the bound id is the default-device sentinel rather than an endpoint.</summary>
+    public static bool IsDefaultSentinel(string? id) =>
+        string.Equals(id, DefaultDeviceId, StringComparison.Ordinal);
 
     /// <summary>Resolves the configured volume step (parameter index 1, in percent) as a
     /// 0..1 scalar, falling back to <see cref="DefaultStepPercent"/> when absent/invalid.</summary>
