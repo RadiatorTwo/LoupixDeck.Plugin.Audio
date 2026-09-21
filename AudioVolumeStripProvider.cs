@@ -59,6 +59,27 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
         public float Volume;
         public bool Muted;
         public IDisposable? Subscription;
+
+        /// <summary>
+        /// Reads the level from the adjustment command bound to this dial. That command owns
+        /// the value, so the bar follows it rather than asking the audio backend a second time
+        /// and risking a different answer. Null for a dial bound to the old per-gesture
+        /// commands, which is what <see cref="Volume"/> stays seeded for.
+        /// </summary>
+        public Func<AdjustmentValue?>? PullValue;
+
+        /// <summary>The level to draw: the dial's command when it has one, else the seed.</summary>
+        public float Level
+        {
+            get
+            {
+                AdjustmentValue? value = null;
+                try { value = PullValue?.Invoke(); }
+                catch { /* a command that throws costs its bar, not the strip */ }
+
+                return value.HasValue ? Math.Clamp((float)value.Value.Normalized, 0f, 1f) : Volume;
+            }
+        }
     }
 
     private readonly IAudioService _audio;
@@ -114,7 +135,8 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
                 Label = rotary.Label?.Trim() ?? string.Empty,
                 Fallback = deviceId != null && names.TryGetValue(deviceId, out var friendly)
                     ? friendly : string.Empty,
-                DialNumber = rotary.Index + 1
+                DialNumber = rotary.Index + 1,
+                PullValue = rotary.GetValue
             };
 
             if (bar.DeviceId != null)
@@ -146,7 +168,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
 
         var horizontal = _settings.Get(AudioVolumeStripProvider.HorizontalLayoutKey, false);
         AudioStripRenderer.Render(_bars.Select(b => new AudioStripRenderer.BarView(
-            DisplayName(b), b.DeviceId != null, Math.Clamp(b.Volume, 0f, 1f), b.Muted)).ToList(),
+            DisplayName(b), b.DeviceId != null, b.Level, b.Muted)).ToList(),
             canvas, horizontal);
         return true;
     }
@@ -169,7 +191,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
             return false;
 
         AudioStripRenderer.RenderBand(
-            new AudioStripRenderer.BarView(DisplayName(bar), true, Math.Clamp(bar.Volume, 0f, 1f), bar.Muted),
+            new AudioStripRenderer.BarView(DisplayName(bar), true, bar.Level, bar.Muted),
             canvas);
         return true;
     }
@@ -239,8 +261,11 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
 /// <summary>Extracts the audio device id a rotary controls from its bound command.</summary>
 internal static class AudioStripCommandParser
 {
+    // Audio.Volume first: it is what a dial is bound to now, and a migrated dial carries
+    // nothing else. Audio.AppVolume is deliberately absent - its first parameter is an app id,
+    // not an endpoint, so a dial bound to it has no device and the bar correctly declines.
     private static readonly string[] VolumeCommands =
-        ["Audio.VolumeUp", "Audio.VolumeDown", "Audio.MuteToggle"];
+        ["Audio.Volume", "Audio.VolumeUp", "Audio.VolumeDown", "Audio.MuteToggle"];
 
     public static string? ExtractDeviceId(SideStripRotary rotary)
     {
