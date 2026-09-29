@@ -108,14 +108,7 @@ public sealed class LinuxAudioService : IAudioService
         Process proc;
         try
         {
-            var psi = new ProcessStartInfo("pactl", "subscribe")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            proc = Process.Start(psi)!;
+            proc = Process.Start(PactlStartInfo("subscribe"))!;
         }
         catch
         {
@@ -615,18 +608,30 @@ public sealed class LinuxAudioService : IAudioService
         }
     }
 
+    /// <summary>
+    /// A pactl invocation pinned to the C locale. pactl translates its output through gettext,
+    /// and every parser here matches the English text ("Mute: yes", "Name:", "Event 'change'
+    /// on sink"): on a German system mute reads back as "Stumm: ja", so it always parsed as
+    /// unmuted and a toggle could never unmute (LoupixDeck#297).
+    /// </summary>
+    private static ProcessStartInfo PactlStartInfo(string args)
+    {
+        ProcessStartInfo psi = new("pactl", args)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        psi.Environment["LC_ALL"] = "C";
+        return psi;
+    }
+
     private static string RunPactl(string args)
     {
         try
         {
-            var psi = new ProcessStartInfo("pactl", args)
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var proc = Process.Start(psi)!;
+            using var proc = Process.Start(PactlStartInfo(args))!;
             var stdout = proc.StandardOutput.ReadToEnd();
             proc.WaitForExit(2000);
             return stdout;
