@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Audio.Rendering;
 
@@ -132,6 +133,85 @@ internal sealed partial class MixerTileRenderer
     /// </summary>
     public static bool UsesPixelFont(MixerTileData tile, MixerTileStyle style) =>
         style.Font == MixerTileFont.Pixel && BitmapFont5x7.CanRender(BitmapFont5x7.Prepare(NormalizeName(tile.Name)));
+
+    /// <summary>
+    /// The smooth font: draws the percentage and the name on the host canvas, in the host's anti-aliased font,
+    /// at the positions the pixel font uses, after the picture has been put on it. Does nothing when the picture
+    /// carries the text itself. The canvas must be the one <see cref="Render"/> just drew onto.
+    /// </summary>
+    public void DrawSmoothText(IRenderCanvas canvas, MixerTileData tile, MixerTileStyle style, int size)
+    {
+        if (UsesPixelFont(tile, style)) return;
+
+        Box box = new(size);
+        MixerTileLayout layout = style.Layout;
+        string name = NormalizeName(tile.Name);
+        PluginColor percentColor = ToColor(tile.Muted ? MutedColor : TextColor);
+        PluginColor nameColor = ToColor(tile.Muted ? MutedColor : tile.Selected ? TextColor : NameColor);
+        string number = tile.Percent.ToString(CultureInfo.InvariantCulture);
+        float nameSize = Math.Max(8f, (float)(13 * box.Scale));
+
+        if (layout == MixerTileLayout.Left)
+        {
+            float numberSize = Math.Max(9f, (float)(16 * box.Scale));
+            int top = box.At(13);
+            int w = (int)Math.Ceiling(canvas.MeasureText(number, numberSize, bold: true));
+            SmoothLine(canvas, number, box.Right - w, top + 7, w, numberSize, TextHAlign.Right, percentColor, bold: true);
+            SmoothLine(canvas, "%", box.Right - 16, top + 14 + 2 + 4, 16, nameSize, TextHAlign.Right, percentColor, bold: true);
+            if (tile.Muted)
+                canvas.FillRectangle(box.Right - w - 1, top + 7, w + 2, 2, ToColor(StrikeColor));
+
+            List<string> lines = WrapTwoLines(name, box.Width,
+                t => canvas.MeasureText(t, nameSize), t => TruncateToFit(canvas, t, nameSize, box.Width));
+            for (int i = 0; i < lines.Count; i++)
+                // 14 px apart in the design, the host font being taller than the bitmap font's 9 px pitch.
+                SmoothLine(canvas, lines[i], box.Left, box.At(i == 0 ? 54 : 68), box.Width, nameSize,
+                    TextHAlign.Left, nameColor, bold: tile.Selected);
+            return;
+        }
+
+        (int designScale, int designName, double designFont) = layout switch
+        {
+            MixerTileLayout.Background => (3, 60, 22.0),
+            MixerTileLayout.Arc => (2, 74, 16.0),
+            _ => (2, 64, 16.0)
+        };
+
+        // The band the pixel font would use for the percentage; the host font is centred in the same band.
+        string percent = number + "%";
+        float percentSize = Math.Max(9f, (float)(designFont * box.Scale));
+        int band = 7 * FitScale(percent, designScale, box.Width);
+        int centerY = PercentTop(tile, layout, box) + (band / 2);
+        int percentWidth = (int)Math.Ceiling(canvas.MeasureText(percent, percentSize, bold: true));
+        SmoothLine(canvas, percent, box.Left, centerY, box.Width, percentSize, TextHAlign.Center, percentColor, bold: true);
+        if (tile.Muted)
+            canvas.FillRectangle(box.Centre(percentWidth) - 1, centerY, percentWidth + 2, 2, ToColor(StrikeColor));
+
+        SmoothLine(canvas, TruncateToFit(canvas, name, nameSize, box.Width), box.Left,
+            box.TextTop(designName, 1, 1) + 4, box.Width, nameSize, TextHAlign.Center, nameColor, bold: tile.Selected);
+    }
+
+    /// <summary>One line of host text, vertically centred on <paramref name="centerY"/>.</summary>
+    private static void SmoothLine(IRenderCanvas canvas, string text, int x, int centerY, int width, float fontSize,
+        TextHAlign align, PluginColor color, bool bold)
+    {
+        int height = (int)Math.Ceiling(fontSize * 1.5);
+        canvas.DrawText(text, x, centerY - (height / 2), width, height, color, fontSize, align, TextVAlign.Middle, bold);
+    }
+
+    /// <summary>The name cut to fit <paramref name="room"/> pixels in the host font, with an ellipsis.</summary>
+    private static string TruncateToFit(IRenderCanvas canvas, string name, float fontSize, int room)
+    {
+        if (canvas.MeasureText(name, fontSize) <= room) return name;
+
+        string cut = name;
+        while (cut.Length > 1 && canvas.MeasureText(cut.TrimEnd() + BitmapFont5x7.Ellipsis, fontSize) > room)
+            cut = cut[..^1];
+        return cut.TrimEnd() + BitmapFont5x7.Ellipsis;
+    }
+
+    private static PluginColor ToColor(uint argb) =>
+        new((byte)(argb >> 16), (byte)(argb >> 8), (byte)argb, (byte)(argb >> 24));
 
     /// <summary>What the host still draws over the picture: empty when the picture already carries the text.</summary>
     public static string HostText(MixerTileData tile, MixerTileStyle style) =>
@@ -317,7 +397,7 @@ internal sealed partial class MixerTileRenderer
             if (tile.Muted)
                 _surface.Fill(x - scale, top + (3 * scale), w + (2 * scale), scale, StrikeColor);
 
-            List<string> lines = WrapTwoLines(name, box.Width);
+            List<string> lines = WrapTwoLines(name, box.Width, t => BitmapFont5x7.Measure(t), t => TruncatePixel(t, box.Width));
             for (int i = 0; i < lines.Count; i++)
                 _surface.DrawText(lines[i], box.Left, box.TextTop(i == 0 ? 51 : 60, 1, 1), 1, nameColor);
             return;
@@ -399,10 +479,14 @@ internal sealed partial class MixerTileRenderer
         return name.Length > chars ? name[..(chars - 1)].TrimEnd() + BitmapFont5x7.Ellipsis : name;
     }
 
-    /// <summary>Breaks a name over two lines of <paramref name="room"/> pixels at a space or after a hyphen, cutting the second line if needed.</summary>
-    internal static List<string> WrapTwoLines(string name, int room)
+    /// <summary>
+    /// Breaks a name over two lines of <paramref name="room"/> pixels at a space or after a hyphen, cutting the
+    /// second line if needed. <paramref name="measure"/> and <paramref name="truncate"/> stand for the font in use.
+    /// </summary>
+    internal static List<string> WrapTwoLines(string name, int room, Func<string, float> measure,
+        Func<string, string> truncate)
     {
-        bool Fits(string s) => BitmapFont5x7.Measure(s) <= room;
+        bool Fits(string s) => measure(s) <= room;
 
         List<string> lines = [];
         string current = string.Empty;
@@ -460,7 +544,7 @@ internal sealed partial class MixerTileRenderer
         if (current.Length > 0) lines.Add(current);
         if (lines.Count <= 2) return lines;
 
-        return [lines[0], TruncatePixel(string.Join(' ', lines.Skip(1)), room)];
+        return [lines[0], truncate(string.Join(' ', lines.Skip(1)))];
     }
 
     private void DrawBadge(MixerTileData tile, MixerTileLayout layout, Box box)

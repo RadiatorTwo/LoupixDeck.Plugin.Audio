@@ -163,7 +163,8 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private FolderEntry DrawnSlot(SlotSpec spec, MixerTileData data) => new()
     {
         SlotIndex = spec.Slot,
-        Text = spec.Text,
+        // The callback draws the text itself, so the host has none to add.
+        Text = string.Empty,
         TextSize = 14,
         TextColor = spec.TextColor,
         BackColor = PluginColor.FromRgb(0x0A, 0x0B, 0x0D),
@@ -173,6 +174,9 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
             int size = Math.Min(canvas.Width, canvas.Height);
             _keySize = size;
             _renderer.Render(data, _style, size, (pixels, edge) => canvas.DrawPixels(pixels, edge, edge));
+            // The smooth font is drawn by the host font on the same canvas, at exact positions, instead of
+            // as one centred block of text that would land wherever the line count puts it.
+            _renderer.DrawSmoothText(canvas, data, _style, size);
         }
     };
 
