@@ -55,6 +55,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         if (_audio is WindowsAudioService windows) windows.Logger = host.Logger;
 
         _host = host;
+        AudioButtonLayouts.Translate = host.Tr;
         _settings = host.Settings;
         _aliasStore = new AudioAliasStore(host.Settings);
         _soundLibrary = new SoundLibrary(host.Settings);

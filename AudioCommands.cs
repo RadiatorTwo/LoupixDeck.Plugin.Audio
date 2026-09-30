@@ -14,7 +14,8 @@ internal sealed class AudioOutputFolderCommand(IAudioService audio, AudioAliasSt
         CommandName = "Audio.OutputDevices",
         DisplayName = "Audio: Output Devices",
         Group = "Audio",
-        Icon = "\U000F04C3",
+        Icon = AudioButtonLayouts.Speaker,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Speaker, "Output"),
         Description = "Open the output device picker folder",
         HiddenFromMenu = true
     };
@@ -38,7 +39,8 @@ internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasSto
         CommandName = "Audio.InputDevices",
         DisplayName = "Audio: Input Devices",
         Group = "Audio",
-        Icon = "\U000F036C",
+        Icon = AudioButtonLayouts.Microphone,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Microphone, "Input"),
         Description = "Open the input device picker folder",
         HiddenFromMenu = true
     };
@@ -61,7 +63,8 @@ internal sealed class AudioMixerFolderCommand(IAudioService audio, AppIdentityCa
         CommandName = "Audio.Mixer",
         DisplayName = "Audio: Mixer",
         Group = "Audio",
-        Icon = "\U000F057E",
+        Icon = AudioButtonLayouts.Mixer,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Mixer, "Mixer"),
         Description = "Open the per-application volume mixer",
         HiddenFromMenu = true,
         // The parameters are optional in effect: a binding saved before they existed has none

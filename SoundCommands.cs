@@ -25,7 +25,8 @@ internal sealed class AudioPlaySoundCommand(
         CommandName = "Audio.PlaySound",
         DisplayName = "Audio: Play Sound",
         Group = "Audio",
-        Icon = "\U000F075A",
+        Icon = AudioButtonLayouts.Sound,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Sound, null),
         Description = "Play an assigned audio file on the configured device",
         HiddenFromMenu = true,
         ParameterTemplate = "({sound})",
@@ -80,7 +81,8 @@ internal sealed class AudioStopSoundCommand(IAudioService audio, IPluginHost hos
         CommandName = "Audio.StopSounds",
         DisplayName = "Audio: Stop Sounds",
         Group = "Audio",
-        Icon = "\U000F04DB",
+        Icon = AudioButtonLayouts.Stop,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Stop, "Stop Sounds"),
         Description = "Stop every sound started by Play Sound",
         HiddenFromMenu = true
     };

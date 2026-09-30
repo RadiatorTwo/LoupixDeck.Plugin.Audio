@@ -29,7 +29,8 @@ internal sealed class AudioCurrentOutputCommand(
         CommandName = "Audio.CurrentOutput",
         DisplayName = "Audio: Current Output",
         Group = "Audio",
-        Icon = "\U000F057E",
+        Icon = AudioButtonLayouts.Speaker,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Speaker, "Output", tall: true),
         Description = "Show the active output device, and open the picker when pressed",
         HiddenFromMenu = true
     };
