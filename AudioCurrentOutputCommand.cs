@@ -32,7 +32,10 @@ internal sealed class AudioCurrentOutputCommand(
         Icon = AudioButtonLayouts.Speaker,
         ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Speaker, "Output", tall: true),
         Description = "Show the active output device, and open the picker when pressed",
-        HiddenFromMenu = true
+        HiddenFromMenu = true,
+        // The look of the picker this button opens; the button itself only shows the device name.
+        ParameterTemplate = MixerTileStyle.ParameterTemplate,
+        Parameters = MixerTileStyle.Parameters()
     };
 
     public ButtonTargets SupportedTargets => ButtonTargets.TouchButton;
@@ -74,8 +77,9 @@ internal sealed class AudioCurrentOutputCommand(
     public Task Execute(CommandContext ctx)
     {
         AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
+        MixerTileStyle style = MixerTileStyle.FromParameters(ctx.Parameters);
         ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Render, aliasStore, visibility, grid, ctx.Host,
-            MixerTileStyle.Default));
+            style));
         return Task.CompletedTask;
     }
 }

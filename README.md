@@ -23,6 +23,9 @@ refreshes every two seconds, so it can lag a default-device change made
 outside the app (from the OS sound settings or `pactl`) by a few seconds, and
 reads "No device" when none is set.
 
+It takes the same five tile parameters as `Audio.OutputDevices` (see below), which
+set the look of the picker it opens.
+
 `Audio.VolumeUp` / `Audio.VolumeDown` / `Audio.MuteToggle` — act on one
 device, assigned from the command menu (Audio → Output/Input Devices). The
 volume step is editable per assignment.
