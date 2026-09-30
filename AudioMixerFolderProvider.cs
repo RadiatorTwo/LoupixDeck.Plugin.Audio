@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Text;
 using LoupixDeck.Plugin.Audio.Rendering;
@@ -47,9 +48,9 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     // whether a name still fits and so whether the marquee has to run.
     private volatile int _keySize = TileSurface.DesignSize;
 
-    // Whether the selected tile's name is wider than the tile in the smooth font, learned from drawing it.
-    private volatile bool _smoothOverflows;
-    private string? _marqueeApp;
+    // Which slots drew a name that is wider than the tile in the smooth font, learned from drawing it: only the
+    // canvas can measure that font.
+    private readonly ConcurrentDictionary<int, bool> _overflowBySlot = [];
 
     internal AudioMixerFolderProvider(IAudioService audio, AudioFolderGrid grid, IPluginHost host,
         MixerTileStyle style, AppIdentityCache identity)
@@ -107,9 +108,11 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
             AppIdentity identity = _identity.Resolve(captured.ExecutablePath);
             string name = NameOf(captured, identity);
 
-            // Only the selected tile with an overlong name moves; every other tile keeps one picture.
-            int frame = selected && _marquee != null ? _marqueeFrame : 0;
+            // One frame counter for all tiles; a tile whose name fits, or that may not scroll, ignores it.
+            int frame = _marquee != null ? _marqueeFrame : 0;
             MixerTileData data = new(name, percent, captured.Muted, selected, identity.Icon, identity.IconSize, frame);
+            // The PNG fallback caches pictures per state, so a picture that does not move must not depend on the frame.
+            int pictureFrame = MixerTileRenderer.Scrolls(name, selected, _style, _keySize) ? frame : 0;
 
             SlotSpec spec = new(
                 slot,
@@ -125,10 +128,14 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
 
             entries.Add(HostDrawsSlots
                 ? DrawnSlot(spec, data)
-                : PictureSlot(spec, data,
-                    $"{captured.AppId}|{percent}|{captured.Muted}|{selected}|{name}|{captured.ExecutablePath}|{frame}",
+                : PictureSlot(spec, data with { MarqueeFrame = pictureFrame },
+                    $"{captured.AppId}|{percent}|{captured.Muted}|{selected}|{name}|{captured.ExecutablePath}|{pictureFrame}",
                     used));
         }
+
+        // A slot that is no longer shown must not keep the marquee alive.
+        foreach (int slot in _overflowBySlot.Keys.Where(k => k >= index).ToList())
+            _overflowBySlot.TryRemove(slot, out _);
 
         // Pictures of states that are gone must not pile up, least of all every frame of a marquee.
         lock (_tiles)
@@ -179,8 +186,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
             // The picture goes on the canvas through DrawPixels, and the smooth-font text is drawn over it with the
             // host font at exact positions. That text is only measurable here, on the canvas, so the drawing also
             // tells whether the selected name is too wide and has to scroll.
-            bool scrolls = _renderer.Draw(canvas, data, _style, size);
-            if (data.Selected) _smoothOverflows = scrolls;
+            _overflowBySlot[spec.Slot] = _renderer.Draw(canvas, data, _style, size);
         }
     };
 
@@ -211,37 +217,28 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         };
     }
 
-    /// <summary>Whether the selected tile has a name that has to scroll to be read.</summary>
-    private bool SelectedNeedsMarquee()
+    /// <summary>Whether any tile has a name that has to scroll to be read.</summary>
+    private bool AnyNeedsMarquee()
     {
-        if (_selectedAppId == null) return false;
+        // The smooth font can only tell from the canvas that a name is too wide, the pixel font can tell up front.
+        if (_overflowBySlot.Values.Any(overflows => overflows)) return true;
 
         foreach (AudioSessionInfo session in _sessions)
         {
-            if (!string.Equals(session.AppId, _selectedAppId, StringComparison.Ordinal)) continue;
-            // The smooth font can only tell from the canvas that a name is too wide, the pixel font can tell up front.
-            return _smoothOverflows
-                || MixerTileRenderer.Scrolls(NameOf(session, _identity.Resolve(session.ExecutablePath)), true, _style, _keySize);
+            bool selected = string.Equals(session.AppId, _selectedAppId, StringComparison.Ordinal);
+            if (MixerTileRenderer.Scrolls(NameOf(session, _identity.Resolve(session.ExecutablePath)), selected, _style, _keySize))
+                return true;
         }
         return false;
     }
 
-    /// <summary>
-    /// Runs the marquee timer only while it has something to move, and restarts the scroll (with its
-    /// one-second hold) whenever another tile is selected.
-    /// </summary>
+    /// <summary>Runs the marquee timer only while some tile has a name to move.</summary>
     private void UpdateMarquee()
     {
-        if (!SelectedNeedsMarquee())
+        if (!AnyNeedsMarquee())
         {
             StopMarquee();
             return;
-        }
-
-        if (!string.Equals(_marqueeApp, _selectedAppId, StringComparison.Ordinal))
-        {
-            _marqueeApp = _selectedAppId;
-            _marqueeFrame = 0;
         }
 
         _marquee ??= new Timer(_ => TickMarquee(), null, MarqueeInterval, MarqueeInterval);
@@ -251,7 +248,6 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     {
         _marquee?.Dispose();
         _marquee = null;
-        _marqueeApp = null;
         _marqueeFrame = 0;
     }
 

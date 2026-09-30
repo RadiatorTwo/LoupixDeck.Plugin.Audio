@@ -65,7 +65,7 @@ internal sealed class AudioMixerFolderCommand(IAudioService audio, AppIdentityCa
         Description = "Open the per-application volume mixer",
         // Both parameters are optional in effect: a binding saved before they existed has none
         // and gets the defaults.
-        ParameterTemplate = "({layout},{font},{transparent},{outlined})",
+        ParameterTemplate = "({layout},{font},{transparent},{outlined},{scroll})",
         Parameters =
         [
             new CommandParameter("layout", typeof(MixerTileLayout))
@@ -77,7 +77,11 @@ internal sealed class AudioMixerFolderCommand(IAudioService audio, AppIdentityCa
                 DefaultValue = nameof(MixerTileFont.Smooth)
             },
             new CommandParameter("transparent", typeof(bool)) { DefaultValue = "False" },
-            new CommandParameter("outlined", typeof(bool)) { DefaultValue = "False" }
+            new CommandParameter("outlined", typeof(bool)) { DefaultValue = "False" },
+            new CommandParameter("scroll", typeof(MixerTileScroll))
+            {
+                DefaultValue = nameof(MixerTileScroll.All)
+            }
         ]
     };
 

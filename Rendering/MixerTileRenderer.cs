@@ -68,6 +68,7 @@ internal sealed partial class MixerTileRenderer
     private readonly object _gate = new();
     private bool _transparent;
     private bool _outlined;
+    private MixerTileScroll _scroll;
     private TileSurface _surface = new(TileSurface.DesignSize);
 
     [GeneratedRegex(@"\s*\(.*\)\s*$")]
@@ -88,13 +89,21 @@ internal sealed partial class MixerTileRenderer
 
     private static int Margin(int keySize) => (int)Math.Round(keySize * 0.1);
 
+    /// <summary>Whether a tile is allowed to scroll a name that does not fit, by the style's scroll setting.</summary>
+    internal static bool MayScroll(bool selected, MixerTileStyle style) => MayScroll(selected, style.Scroll);
+
+    private static bool MayScroll(bool selected, MixerTileScroll scroll) =>
+        scroll == MixerTileScroll.All || (scroll == MixerTileScroll.Selected && selected);
+
     /// <summary>
-    /// Whether the name of this tile scrolls: only in the pixel font, only for a selected tile, only when it
-    /// does not fit. The caller uses this to decide whether the tile needs the fast timer.
+    /// Whether the name of this tile scrolls in the pixel font: when the style lets this tile scroll and the name
+    /// does not fit. The caller uses this to decide whether the tile needs the fast timer. The smooth font cannot
+    /// tell up front, it needs the canvas to measure; see <see cref="Draw"/>.
     /// </summary>
     public static bool Scrolls(string name, bool selected, MixerTileStyle style, int keySize)
     {
-        if (!selected || style.Font != MixerTileFont.Pixel || style.Layout == MixerTileLayout.Left) return false;
+        if (!MayScroll(selected, style) || style.Font != MixerTileFont.Pixel || style.Layout == MixerTileLayout.Left)
+            return false;
 
         string prepared = BitmapFont5x7.Prepare(NormalizeName(name));
         return BitmapFont5x7.CanRender(prepared) && BitmapFont5x7.Measure(prepared) > ContentWidth(keySize);
@@ -112,6 +121,7 @@ internal sealed partial class MixerTileRenderer
 
             _transparent = style.Transparent;
             _outlined = style.Outlined;
+            _scroll = style.Scroll;
 
             Box box = new(size);
             string prepared = BitmapFont5x7.Prepare(NormalizeName(tile.Name));
@@ -129,7 +139,7 @@ internal sealed partial class MixerTileRenderer
 
     /// <summary>
     /// Draws a whole tile onto the host canvas: the picture through <c>DrawPixels</c>, then the smooth-font text on
-    /// top of it. Returns whether the selected tile's name is scrolling, so the caller knows it has to keep
+    /// top of it. Returns whether this tile's name is scrolling, so the caller knows it has to keep
     /// redrawing. Held under one lock so the text is placed against the picture it belongs to.
     /// </summary>
     public bool Draw(IRenderCanvas canvas, MixerTileData tile, MixerTileStyle style, int size)
@@ -161,7 +171,7 @@ internal sealed partial class MixerTileRenderer
     /// The smooth font: draws the percentage and the name on the host canvas, in the host's anti-aliased font,
     /// at the positions the pixel font uses, after the picture has been put on it. Does nothing when the picture
     /// carries the text itself. The canvas must be the one <see cref="Render"/> just drew onto. Returns true when
-    /// the name is wider than the tile and the selected tile therefore scrolls it.
+    /// the name is wider than the tile and the tile therefore scrolls it.
     /// </summary>
     private bool DrawSmoothText(IRenderCanvas canvas, MixerTileData tile, MixerTileStyle style, int size)
     {
@@ -218,8 +228,8 @@ internal sealed partial class MixerTileRenderer
         int nameCenter = box.TextTop(designName, 1, 1) + 4;
         float nameWidth = canvas.MeasureText(name, nameSize, bold: tile.Selected);
 
-        // The selected tile scrolls a name that does not fit; every other tile cuts it with an ellipsis.
-        if (tile.Selected && nameWidth > box.Width)
+        // A tile the style lets scroll runs a name that does not fit; any other cuts it with an ellipsis.
+        if (MayScroll(tile.Selected, style) && nameWidth > box.Width)
         {
             DrawSmoothMarquee(canvas, name, (int)Math.Ceiling(nameWidth), nameCenter, nameSize, nameColor, tile, style, box);
             return true;
@@ -563,14 +573,14 @@ internal sealed partial class MixerTileRenderer
             return;
         }
 
-        if (!tile.Selected)
+        if (!MayScroll(tile.Selected, _scroll))
         {
             string cut = TruncatePixel(name, box.Width);
             Text(cut, box.Centre(BitmapFont5x7.Measure(cut)), y, 1, color);
             return;
         }
 
-        // Selected and overlong: scroll. The loop is the name plus three spaces, drawn twice so the seam is
+        // Overlong and allowed to scroll. The loop is the name plus three spaces, drawn twice so the seam is
         // seamless; the first 20 frames hold the start, then it moves 1 px per frame.
         int period = width + (3 * BitmapFont5x7.Advance) + 1;
         int frame = tile.MarqueeFrame % (period + MarqueeHoldFrames);

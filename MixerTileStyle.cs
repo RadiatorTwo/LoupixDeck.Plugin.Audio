@@ -29,6 +29,19 @@ public enum MixerTileFont
     Pixel
 }
 
+/// <summary>Which tiles scroll a name that is wider than the tile.</summary>
+public enum MixerTileScroll
+{
+    /// <summary>Every tile whose name does not fit scrolls it. The default, and listed first because the host offers the first value of an enum when nothing is chosen.</summary>
+    All,
+
+    /// <summary>Only the selected tile scrolls; the others cut the name with an ellipsis.</summary>
+    Selected,
+
+    /// <summary>Nothing scrolls; a name that does not fit is cut with an ellipsis.</summary>
+    Off
+}
+
 /// <summary>
 /// The look of the mixer tiles, chosen per command through its parameters. A binding that
 /// carries no parameters (every mixer command saved before the tiles were redesigned) gets
@@ -36,8 +49,9 @@ public enum MixerTileFont
 /// </summary>
 /// <param name="Transparent">No tile background: the wallpaper (or the device's black) shows through.</param>
 /// <param name="Outlined">Dark outline around the text, for legibility on a wallpaper.</param>
+/// <param name="Scroll">Which tiles scroll a name that does not fit.</param>
 internal readonly record struct MixerTileStyle(MixerTileLayout Layout, MixerTileFont Font,
-    bool Transparent = false, bool Outlined = false)
+    bool Transparent = false, bool Outlined = false, MixerTileScroll Scroll = MixerTileScroll.All)
 {
     public static MixerTileStyle Default { get; } = new(MixerTileLayout.Top, MixerTileFont.Smooth);
 
@@ -64,6 +78,14 @@ internal readonly record struct MixerTileStyle(MixerTileLayout Layout, MixerTile
         bool transparent = parameters is { Length: > 2 } && bool.TryParse(parameters[2], out bool t) && t;
         bool outlined = parameters is { Length: > 3 } && bool.TryParse(parameters[3], out bool o) && o;
 
-        return new MixerTileStyle(layout, font, transparent, outlined);
+        MixerTileScroll scroll = Default.Scroll;
+        if (parameters is { Length: > 4 } &&
+            Enum.TryParse(parameters[4], ignoreCase: true, out MixerTileScroll parsedScroll) &&
+            Enum.IsDefined(parsedScroll))
+        {
+            scroll = parsedScroll;
+        }
+
+        return new MixerTileStyle(layout, font, transparent, outlined, scroll);
     }
 }
