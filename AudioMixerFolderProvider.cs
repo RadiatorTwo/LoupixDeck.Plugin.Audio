@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using LoupixDeck.Plugin.Audio.Rendering;
 using LoupixDeck.PluginSdk;
@@ -22,13 +23,17 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private static readonly TimeSpan MarqueeInterval = TimeSpan.FromMilliseconds(100);
     private const int MarqueeStepFrames = 2;
 
+    // From SDK 1.28.0 the host lets a slot draw itself on a canvas of the key's real size, so the tile is
+    // pixel-exact on any key calibration. An older host only takes a PNG, which it has to scale to the key.
+    private static readonly bool HostDrawsSlots = SdkInfo.Version >= new Version(1, 28, 0);
+
     private readonly IAudioService _audio;
     private readonly AudioFolderGrid _grid;
     private readonly IPluginHost _host;
     private readonly MixerTileStyle _style;
     private readonly AppIdentityCache _identity;
     private readonly MixerTileRenderer _renderer = new();
-    private readonly Dictionary<string, MixerTileImage> _tiles = [];
+    private readonly Dictionary<string, byte[]> _tiles = [];
     private readonly Dictionary<int, RotaryOverride> _rotaries;
 
     private IReadOnlyList<AudioSessionInfo> _sessions = [];
@@ -97,27 +102,25 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
 
             // Only the selected tile with an overlong name moves; every other tile keeps one picture.
             int frame = selected && MixerTileRenderer.Scrolls(name, selected, _style) ? _marqueeFrame : 0;
-            MixerTileImage tile = GetTile(
-                $"{captured.AppId}|{percent}|{captured.Muted}|{selected}|{name}|{captured.ExecutablePath}|{frame}",
-                new MixerTileData(name, percent, captured.Muted, selected, identity.Icon, identity.IconSize, frame),
-                used);
+            MixerTileData data = new(name, percent, captured.Muted, selected, identity.Icon, identity.IconSize, frame);
 
-            entries.Add(new FolderEntry
-            {
-                SlotIndex = slot,
-                Image = tile.Png,
+            SlotSpec spec = new(
+                slot,
                 // Empty with the pixel font: the picture already carries the text.
-                Text = tile.HostText,
-                TextSize = 14,
-                TextColor = captured.Muted ? PluginColor.FromRgb(0x6E, 0x76, 0x7E) : PluginColor.FromRgb(0xFF, 0xFF, 0xFF),
-                BackColor = PluginColor.FromRgb(0x0A, 0x0B, 0x0D),
-                OnPress = () =>
+                MixerTileRenderer.HostText(data, _style),
+                captured.Muted ? PluginColor.FromRgb(0x6E, 0x76, 0x7E) : PluginColor.FromRgb(0xFF, 0xFF, 0xFF),
+                () =>
                 {
                     _selectedAppId = captured.AppId;
                     RaiseIfChanged();
                     return Task.CompletedTask;
-                }
-            });
+                });
+
+            entries.Add(HostDrawsSlots
+                ? DrawnSlot(spec, data)
+                : PictureSlot(spec, data,
+                    $"{captured.AppId}|{percent}|{captured.Muted}|{selected}|{name}|{captured.ExecutablePath}|{frame}",
+                    used));
         }
 
         // Pictures of states that are gone must not pile up, least of all every frame of a marquee.
@@ -145,20 +148,51 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private static string NameOf(AudioSessionInfo session, AppIdentity identity) =>
         identity.FriendlyName ?? session.DisplayName;
 
-    private MixerTileImage GetTile(string key, MixerTileData data, HashSet<string> used)
+    private readonly record struct SlotSpec(int Slot, string Text, PluginColor TextColor, Func<Task> OnPress);
+
+    /// <summary>
+    /// A slot the host asks to draw itself, on a canvas of the key's real size. Kept out of line: the
+    /// JIT resolves <c>FolderEntry.Render</c> when it compiles this method, which must not happen on a
+    /// host whose SDK lacks the member.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private FolderEntry DrawnSlot(SlotSpec spec, MixerTileData data) => new()
+    {
+        SlotIndex = spec.Slot,
+        Text = spec.Text,
+        TextSize = 14,
+        TextColor = spec.TextColor,
+        BackColor = PluginColor.FromRgb(0x0A, 0x0B, 0x0D),
+        OnPress = spec.OnPress,
+        Render = canvas => _renderer.Render(data, _style, Math.Min(canvas.Width, canvas.Height),
+            (pixels, size) => canvas.DrawPixels(pixels, size, size))
+    };
+
+    /// <summary>The same slot as a 90 x 90 PNG, for a host without <c>FolderEntry.Render</c>.</summary>
+    private FolderEntry PictureSlot(SlotSpec spec, MixerTileData data, string key, HashSet<string> used)
     {
         used.Add(key);
+        byte[] png;
         lock (_tiles)
         {
-            if (_tiles.TryGetValue(key, out MixerTileImage cached)) return cached;
+            if (!_tiles.TryGetValue(key, out byte[]? cached))
+            {
+                cached = _renderer.RenderPng(data, _style);
+                _tiles[key] = cached;
+            }
+            png = cached;
         }
 
-        MixerTileImage rendered = _renderer.Render(data, _style);
-        lock (_tiles)
+        return new FolderEntry
         {
-            _tiles[key] = rendered;
-        }
-        return rendered;
+            SlotIndex = spec.Slot,
+            Image = png,
+            Text = spec.Text,
+            TextSize = 14,
+            TextColor = spec.TextColor,
+            BackColor = PluginColor.FromRgb(0x0A, 0x0B, 0x0D),
+            OnPress = spec.OnPress
+        };
     }
 
     /// <summary>Whether the selected tile has a name that has to scroll to be read.</summary>

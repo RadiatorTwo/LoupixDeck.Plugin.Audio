@@ -17,13 +17,14 @@ internal readonly record struct MixerTileData(
     int IconSize,
     int MarqueeFrame);
 
-/// <summary>The finished tile: the picture, plus the text the host still has to draw over it (smooth font only).</summary>
-internal readonly record struct MixerTileImage(byte[] Png, string HostText);
+/// <summary>Receives the finished pixels of a tile: 0xAARRGGBB, row-major, <paramref name="size"/> x <paramref name="size"/>.</summary>
+internal delegate void TilePixelSink(ReadOnlySpan<uint> pixels, int size);
 
 /// <summary>
-/// Draws the redesigned per-application mixer tile, following the Claude Design spec: a 90 x 90 tile with a
-/// 72 x 72 safe area, four layouts, and text either in a 5x7 bitmap font (drawn here, exact on the panel's
-/// pixel grid) or in the host's anti-aliased font (drawn by the host over the picture).
+/// Draws the redesigned per-application mixer tile, following the Claude Design spec: a tile with a 72 x 72
+/// safe area, four layouts, and text either in a 5x7 bitmap font (drawn here, exact on the panel's pixel
+/// grid) or in the host's anti-aliased font (drawn by the host over the picture). The tile is drawn at the
+/// size of the key it is for, so nothing is scaled on its way to the panel.
 /// </summary>
 internal sealed partial class MixerTileRenderer
 {
@@ -54,8 +55,8 @@ internal sealed partial class MixerTileRenderer
     private static readonly Regex TrailingParentheses = TrailingParenthesesRegex();
     private static readonly Regex Whitespace = WhitespaceRegex();
 
-    private readonly TileSurface _surface = new();
     private readonly object _gate = new();
+    private TileSurface _surface = new(TileSurface.DesignSize);
 
     [GeneratedRegex(@"\s*\(.*\)\s*$")]
     private static partial Regex TrailingParenthesesRegex();
@@ -86,30 +87,47 @@ internal sealed partial class MixerTileRenderer
         return (6 * (n + 3)) + MarqueeHoldFrames;
     }
 
-    public MixerTileImage Render(MixerTileData tile, MixerTileStyle style)
+    /// <summary>
+    /// Draws the tile at <paramref name="size"/> x <paramref name="size"/> pixels and hands the pixels to
+    /// <paramref name="sink"/> while the drawing surface is still held, so nothing is copied.
+    /// </summary>
+    public void Render(MixerTileData tile, MixerTileStyle style, int size, TilePixelSink sink)
     {
         lock (_gate)
         {
+            if (_surface.Size != size) _surface = new TileSurface(size);
+
             string name = NormalizeName(tile.Name);
             string prepared = BitmapFont5x7.Prepare(name);
 
-            // A name the pixel font cannot spell (CJK, Cyrillic) falls back to the host font for this tile.
-            bool pixel = style.Font == MixerTileFont.Pixel && BitmapFont5x7.CanRender(prepared);
-
             DrawFrame(tile, style.Layout);
-            string hostText = string.Empty;
-
-            if (pixel)
-                DrawPixelText(tile, style.Layout, prepared);
-            else
-                hostText = HostText(tile, style.Layout, name);
-
+            if (UsesPixelFont(tile, style)) DrawPixelText(tile, style.Layout, prepared);
             DrawBadgeAndSelection(tile, style.Layout);
 
             _surface.ResetClip();
-            return new MixerTileImage(PngEncoder.Encode(_surface.Pixels, TileSurface.Size, TileSurface.Size), hostText);
+            sink(_surface.Pixels, _surface.Size);
         }
     }
+
+    /// <summary>The tile as a PNG at the design size, for a host that cannot take pixels directly.</summary>
+    public byte[] RenderPng(MixerTileData tile, MixerTileStyle style)
+    {
+        byte[] png = [];
+        Render(tile, style, TileSurface.DesignSize,
+            (pixels, size) => png = PngEncoder.Encode(pixels, size, size));
+        return png;
+    }
+
+    /// <summary>
+    /// Whether the picture carries the text. False for the smooth font, and for a name the bitmap font cannot
+    /// spell (CJK, Cyrillic), which falls back to the host font for this tile.
+    /// </summary>
+    public static bool UsesPixelFont(MixerTileData tile, MixerTileStyle style) =>
+        style.Font == MixerTileFont.Pixel && BitmapFont5x7.CanRender(BitmapFont5x7.Prepare(NormalizeName(tile.Name)));
+
+    /// <summary>What the host still draws over the picture: empty when the picture already carries the text.</summary>
+    public static string HostText(MixerTileData tile, MixerTileStyle style) =>
+        UsesPixelFont(tile, style) ? string.Empty : HostText(tile, style.Layout, NormalizeName(tile.Name));
 
     private void DrawFrame(MixerTileData tile, MixerTileLayout layout)
     {
@@ -334,10 +352,8 @@ internal sealed partial class MixerTileRenderer
 
         if (tile.Selected)
         {
-            _surface.Fill(2, 2, 86, 2, Accent);
-            _surface.Fill(2, 86, 86, 2, Accent);
-            _surface.Fill(2, 4, 2, 82, Accent);
-            _surface.Fill(86, 4, 2, 82, Accent);
+            // Two pixels inside the design's edge, but never off the key: on a smaller key the frame sits at its edge.
+            _surface.DrawFrame(2, 2, Accent);
         }
     }
 

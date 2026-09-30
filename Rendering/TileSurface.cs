@@ -1,30 +1,51 @@
 namespace LoupixDeck.Plugin.Audio.Rendering;
 
 /// <summary>
-/// A 90 x 90 ARGB framebuffer a mixer tile is drawn into before it becomes a PNG. Coordinates are
-/// canvas pixels, origin top-left, anything outside is clipped. One surface is reused for every
-/// tile of a folder, so a redraw allocates nothing but the PNG.
+/// A square ARGB framebuffer a mixer tile is drawn into, the size of the key it ends up on.
+/// Drawing uses the coordinates of the 90 x 90 reference design, whose 72 x 72 content area is
+/// centred in whatever size the surface has: on a key calibrated to 74 px the design's outer margin
+/// is simply cropped, and nothing is ever scaled. Anything outside the surface is clipped. One
+/// surface is reused for every tile of a folder, so a redraw allocates nothing.
 /// </summary>
 internal sealed class TileSurface
 {
-    public const int Size = 90;
+    /// <summary>Edge of the reference design.</summary>
+    public const int DesignSize = 90;
 
-    private readonly uint[] _pixels = new uint[Size * Size];
+    private const int ContentSize = 72;
+    private const int ContentLeft = 9;
+
+    private readonly uint[] _pixels;
+    private readonly int _offset;
 
     private int _clipLeft;
     private int _clipTop;
-    private int _clipRight = Size;
-    private int _clipBottom = Size;
+    private int _clipRight;
+    private int _clipBottom;
+
+    public TileSurface(int size)
+    {
+        Size = Math.Max(1, size);
+        _pixels = new uint[Size * Size];
+        _offset = ((Size - ContentSize) / 2) - ContentLeft;
+        ResetClip();
+    }
+
+    /// <summary>Edge of the surface in pixels.</summary>
+    public int Size { get; }
+
+    /// <summary>Where design coordinate 0 lands on the surface; negative when the surface is smaller than the design.</summary>
+    public int Offset => _offset;
 
     public ReadOnlySpan<uint> Pixels => _pixels;
 
-    /// <summary>Restricts every following draw call to a rectangle, for the scrolling name.</summary>
+    /// <summary>Restricts every following draw call to a rectangle in design coordinates, for the scrolling name.</summary>
     public void SetClip(int x, int y, int width, int height)
     {
-        _clipLeft = Math.Max(0, x);
-        _clipTop = Math.Max(0, y);
-        _clipRight = Math.Min(Size, x + width);
-        _clipBottom = Math.Min(Size, y + height);
+        _clipLeft = Math.Max(0, x + _offset);
+        _clipTop = Math.Max(0, y + _offset);
+        _clipRight = Math.Min(Size, x + _offset + width);
+        _clipBottom = Math.Min(Size, y + _offset + height);
     }
 
     public void ResetClip()
@@ -35,13 +56,27 @@ internal sealed class TileSurface
         _clipBottom = Size;
     }
 
+    /// <summary>A frame of <paramref name="thickness"/> px drawn <paramref name="inset"/> px inside the design's edge, kept on the surface.</summary>
+    public void DrawFrame(int inset, int thickness, uint color)
+    {
+        int at = Math.Max(0, inset + _offset);
+        int length = Size - (2 * at);
+        FillRaw(at, at, length, thickness, color);
+        FillRaw(at, Size - at - thickness, length, thickness, color);
+        FillRaw(at, at + thickness, thickness, length - (2 * thickness), color);
+        FillRaw(Size - at - thickness, at + thickness, thickness, length - (2 * thickness), color);
+    }
+
     /// <summary>Solid 0xAARRGGBB colour from an opaque 0xRRGGBB value.</summary>
     public static uint Rgb(uint rgb) => 0xFF000000u | rgb;
 
     public void Clear(uint color) => Array.Fill(_pixels, color);
 
-    /// <summary>Fills a rectangle; a colour with alpha below 255 is blended over what is there.</summary>
-    public void Fill(int x, int y, int width, int height, uint color)
+    /// <summary>Fills a rectangle given in design coordinates; a colour with alpha below 255 is blended over what is there.</summary>
+    public void Fill(int x, int y, int width, int height, uint color) =>
+        FillRaw(x + _offset, y + _offset, width, height, color);
+
+    private void FillRaw(int x, int y, int width, int height, uint color)
     {
         int left = Math.Max(0, x);
         int top = Math.Max(0, y);
@@ -50,11 +85,13 @@ internal sealed class TileSurface
 
         for (int row = top; row < bottom; row++)
             for (int col = left; col < right; col++)
-                Blend(col, row, color);
+                BlendRaw(col, row, color);
     }
 
-    /// <summary>Blends one pixel with straight alpha over the current content.</summary>
-    public void Blend(int x, int y, uint color)
+    /// <summary>Blends one pixel given in design coordinates with straight alpha over the current content.</summary>
+    public void Blend(int x, int y, uint color) => BlendRaw(x + _offset, y + _offset, color);
+
+    private void BlendRaw(int x, int y, uint color)
     {
         if (x < _clipLeft || x >= _clipRight || y < _clipTop || y >= _clipBottom) return;
 
