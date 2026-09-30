@@ -135,6 +135,12 @@ internal sealed partial class MixerTileRenderer
         _surface.ResetClip();
         _surface.Clear(tile.Selected ? BackgroundSelected : Background);
 
+        // The selection frame goes down first, so the tile's content lies over it. It sits well inside the
+        // edge: the key cap and the viewing angle hide the outermost pixels, and a frame at the very edge
+        // reads as cut off. A 74 px key has less room to give than a 90 px one.
+        if (tile.Selected)
+            _surface.DrawFrame(_surface.Size >= TileSurface.DesignSize ? 4 : 3, 2, Accent);
+
         float opacity = tile.Muted ? l.MutedIconOpacity : l.IconOpacity;
         if (tile.Icon != null)
         {
@@ -156,8 +162,12 @@ internal sealed partial class MixerTileRenderer
         }
         else
         {
-            _surface.Fill(9, 77, 72, 4, Track);
-            _surface.Fill(9, 77, (int)Math.Round(72 * tile.Percent / 100.0), 4, fill);
+            // On a small key the bar moves up and gets thinner so that it stays clear of the selection frame.
+            bool small = _surface.Size < TileSurface.DesignSize;
+            int barY = small ? 72 : 77;
+            int barHeight = small ? 3 : 4;
+            _surface.Fill(9, barY, 72, barHeight, Track);
+            _surface.Fill(9, barY, (int)Math.Round(72 * tile.Percent / 100.0), barHeight, fill);
         }
     }
 
@@ -350,11 +360,6 @@ internal sealed partial class MixerTileRenderer
                         _surface.Fill(l.BadgeX + 2 + c, l.BadgeY + 2 + r, 1, 1, BadgeColor);
         }
 
-        if (tile.Selected)
-        {
-            // Two pixels inside the design's edge, but never off the key: on a smaller key the frame sits at its edge.
-            _surface.DrawFrame(2, 2, Accent);
-        }
     }
 
     /// <summary>

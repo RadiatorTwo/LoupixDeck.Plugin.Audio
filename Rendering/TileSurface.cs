@@ -56,10 +56,10 @@ internal sealed class TileSurface
         _clipBottom = Size;
     }
 
-    /// <summary>A frame of <paramref name="thickness"/> px drawn <paramref name="inset"/> px inside the design's edge, kept on the surface.</summary>
+    /// <summary>A frame of <paramref name="thickness"/> px drawn <paramref name="inset"/> px inside the surface's edge.</summary>
     public void DrawFrame(int inset, int thickness, uint color)
     {
-        int at = Math.Max(0, inset + _offset);
+        int at = Math.Max(0, inset);
         int length = Size - (2 * at);
         FillRaw(at, at, length, thickness, color);
         FillRaw(at, Size - at - thickness, length, thickness, color);
