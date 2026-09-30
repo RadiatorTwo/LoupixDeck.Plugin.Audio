@@ -76,6 +76,9 @@ internal sealed class TileSurface
     public void Fill(int x, int y, int width, int height, uint color) =>
         FillRaw(x + _offset, y + _offset, width, height, color);
 
+    /// <summary>Fills a rectangle given in surface pixels, for elements that are placed from the surface's own edge.</summary>
+    public void FillSurface(int x, int y, int width, int height, uint color) => FillRaw(x, y, width, height, color);
+
     private void FillRaw(int x, int y, int width, int height, uint color)
     {
         int left = Math.Max(0, x);

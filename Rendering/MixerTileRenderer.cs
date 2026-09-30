@@ -132,14 +132,15 @@ internal sealed partial class MixerTileRenderer
     private void DrawFrame(MixerTileData tile, MixerTileLayout layout)
     {
         TileLayout l = TileLayout.For(layout);
+        EdgeMetrics edge = EdgeMetrics.For(_surface.Size);
         _surface.ResetClip();
         _surface.Clear(tile.Selected ? BackgroundSelected : Background);
 
         // The selection frame goes down first, so the tile's content lies over it. It sits well inside the
         // edge: the key cap and the viewing angle hide the outermost pixels, and a frame at the very edge
-        // reads as cut off. A 74 px key has less room to give than a 90 px one.
+        // reads as cut off.
         if (tile.Selected)
-            _surface.DrawFrame(_surface.Size >= TileSurface.DesignSize ? 4 : 3, 2, Accent);
+            _surface.DrawFrame(edge.FrameInset, edge.FrameThickness, Accent);
 
         float opacity = tile.Muted ? l.MutedIconOpacity : l.IconOpacity;
         if (tile.Icon != null)
@@ -162,12 +163,12 @@ internal sealed partial class MixerTileRenderer
         }
         else
         {
-            // On a small key the bar moves up and gets thinner so that it stays clear of the selection frame.
-            bool small = _surface.Size < TileSurface.DesignSize;
-            int barY = small ? 72 : 77;
-            int barHeight = small ? 3 : 4;
-            _surface.Fill(9, barY, 72, barHeight, Track);
-            _surface.Fill(9, barY, (int)Math.Round(72 * tile.Percent / 100.0), barHeight, fill);
+            // Placed from the key's own bottom edge, above the selection frame, so it keeps its distance
+            // to the edge whatever the key size is set to.
+            int barY = _surface.Size - edge.BarBottomGap - edge.BarHeight;
+            int barX = 9 + _surface.Offset;
+            _surface.FillSurface(barX, barY, 72, edge.BarHeight, Track);
+            _surface.FillSurface(barX, barY, (int)Math.Round(72 * tile.Percent / 100.0), edge.BarHeight, fill);
         }
     }
 
@@ -373,6 +374,24 @@ internal sealed partial class MixerTileRenderer
         string shown = name.Length > HostNameChars ? name[..(HostNameChars - 1)].TrimEnd() + '…' : name;
         string padding = string.Concat(Enumerable.Repeat(" \n", TileLayout.For(layout).HostPaddingLines));
         return $"{padding}{tile.Percent} %\n{shown}";
+    }
+
+    /// <summary>
+    /// What sits near the key's edge, derived from the key size so it follows whatever the size is set to.
+    /// The proportions are those of the 90 px design (frame 4 px in, 2 px thick, bar 4 px tall and 3 px above
+    /// the frame) and never drop below a pixel or two, where a smaller key would otherwise lose them.
+    /// </summary>
+    private readonly record struct EdgeMetrics(int FrameInset, int FrameThickness, int BarHeight, int BarBottomGap)
+    {
+        public static EdgeMetrics For(int size)
+        {
+            int inset = Math.Max(2, (int)Math.Round(size * 0.045));
+            int thickness = Math.Max(1, (int)Math.Round(size / 45.0));
+            int barHeight = Math.Max(2, (int)Math.Round(size * 0.045));
+            // Frame, then a gap, then the bar: the gap is what keeps the bar from merging into a full frame.
+            int gap = inset + thickness + Math.Max(2, (int)Math.Round(size * 0.03));
+            return new EdgeMetrics(inset, thickness, barHeight, gap);
+        }
     }
 
     /// <summary>The coordinates of one layout, straight from the design spec.</summary>
