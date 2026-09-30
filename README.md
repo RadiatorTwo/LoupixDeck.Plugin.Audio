@@ -34,6 +34,25 @@ default one, so a virtual mixer that routes each application to a device of its
 own does not hide them. The Windows audio engine is left out, and the system
 sounds session is listed as "System Sounds".
 
+Each tile shows the application's icon, its level and its name. On Windows the
+icon and the name (the executable's file description, for example "Google
+Chrome") come from the executable; on Linux, and for applications without an
+icon, a speaker is shown. The command has two parameters, so every assignment
+can look different:
+
+- `layout` — `Top` (icon above level and name, the default), `Left` (icon on the
+  left, name over two lines), `Background` (faded icon behind a large level) or
+  `Arc` (faded icon inside an arc that shows the level).
+- `font` — `Pixel` (the default) draws the text in a 5x7 bitmap font that sits
+  exactly on the panel's pixels: uppercase, 12 characters per line, and the name
+  of the selected tile scrolls when it is longer. `Smooth` lets LoupixDeck draw
+  the text in its anti-aliased font; that text is always centred below the icon,
+  and a long name is shortened instead of scrolling. A name the bitmap font
+  cannot spell (for example Chinese or Cyrillic) is drawn in the smooth font
+  automatically.
+
+An assignment saved before these parameters existed uses the defaults.
+
 `Audio.AppVolumeUp` / `Audio.AppVolumeDown` / `Audio.AppMuteToggle` /
 `Audio.AppSetVolume` — act on one application, assigned from the command menu
 under Audio → Applications. A binding stores the process name, so it survives
