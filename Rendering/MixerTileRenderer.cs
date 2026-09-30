@@ -483,8 +483,12 @@ internal sealed partial class MixerTileRenderer
                 _surface.Fill(x - scale, top + (3 * scale), w + (2 * scale), scale, StrikeColor);
 
             List<string> lines = WrapTwoLines(name, box.Width, t => BitmapFont5x7.Measure(t), t => TruncatePixel(t, box.Width));
+            // The second line keeps the design's place and the first sits a full line above it. The pitch is the
+            // glyph plus a gap that never closes up, which the design's 9 px only gave on a full-size key.
+            int lastTop = box.TextTop(60, 1, 1);
+            int pitch = Glyph + Math.Max(3, box.Len(3));
             for (int i = 0; i < lines.Count; i++)
-                Text(lines[i], box.Left, box.TextTop(i == 0 ? 51 : 60, 1, 1), 1, nameColor);
+                Text(lines[i], box.Left, lines.Count == 1 ? lastTop : (i == 0 ? lastTop - pitch : lastTop), 1, nameColor);
             return;
         }
 
