@@ -68,8 +68,8 @@ tile without outline.
 
 `Audio.OutputDevices` and `Audio.InputDevices` open the device list with the same
 tiles and take the same five parameters. A tile shows the device's icon (speaker,
-or microphone for inputs), its volume and its name; the default device carries the
-selection frame, and a muted device is greyed out and struck through. Tapping a tile
+or microphone for inputs), its volume and its name; the default device is named in
+bold, white type (no selection frame), and a muted device is greyed out and struck through. Tapping a tile
 opens that device's volume, mute and default controls. The levels follow the
 devices while the folder is open. A list saved before the tiles existed picks up the
 new look with the defaults.

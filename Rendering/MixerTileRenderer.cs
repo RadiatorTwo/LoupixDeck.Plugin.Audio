@@ -18,6 +18,7 @@ internal enum MixerTileGlyph
 /// <param name="IconSize">Edge of <paramref name="Icon"/> in pixels.</param>
 /// <param name="MarqueeFrame">Frame counter of the scrolling name; only read for a selected tile with an overlong name.</param>
 /// <param name="Glyph">Symbol shown when <paramref name="Icon"/> is null.</param>
+/// <param name="Framed">Whether a selected tile gets the selection frame. A folder whose tiles mark something other than a selection turns it off; the name is still drawn as a selected one.</param>
 internal readonly record struct MixerTileData(
     string Name,
     int Percent,
@@ -26,7 +27,8 @@ internal readonly record struct MixerTileData(
     uint[]? Icon,
     int IconSize,
     int MarqueeFrame,
-    MixerTileGlyph Glyph = MixerTileGlyph.Speaker);
+    MixerTileGlyph Glyph = MixerTileGlyph.Speaker,
+    bool Framed = true);
 
 /// <summary>Receives the finished pixels of a tile: 0xAARRGGBB, row-major, <paramref name="size"/> x <paramref name="size"/>.</summary>
 internal delegate void TilePixelSink(ReadOnlySpan<uint> pixels, int size);
@@ -375,7 +377,7 @@ internal sealed partial class MixerTileRenderer
         // The selection frame goes down first, so the tile's content lies over it. It sits well inside the
         // edge: the key cap and the viewing angle hide the outermost pixels, and a frame at the very edge
         // reads as cut off.
-        if (tile.Selected)
+        if (tile.Selected && tile.Framed)
             _surface.DrawFrame(box.FrameInset, box.FrameThickness, Accent);
     }
 

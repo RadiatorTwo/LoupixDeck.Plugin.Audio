@@ -80,9 +80,10 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
             int slot = _grid.SlotForIndex(index++);
             if (slot < 0) break; // grid full
 
-            // The default endpoint is the one in use, so it is what the frame marks.
+            // The default endpoint is the one in use. It is not a selection, so it gets no frame; its name is
+            // drawn bold and bright instead.
             MixerTileData data = new(row.Name, row.Percent, row.Muted, row.Endpoint.IsDefault, null, 0,
-                _painter.Frame, GlyphFor(_kind));
+                _painter.Frame, GlyphFor(_kind), Framed: false);
 
             TileSlotSpec spec = new(
                 slot,
