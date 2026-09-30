@@ -53,6 +53,11 @@ can look different:
 
 An assignment saved before these parameters existed uses the defaults.
 
+The tiles are drawn at the size of the key, so they stay sharp on a calibrated key
+(74 px, for example). That needs LoupixDeck with Plugin SDK 1.28.0 or newer; an
+older LoupixDeck receives a 90 px picture and scales it to the key, which softens
+the pixel font.
+
 `Audio.AppVolumeUp` / `Audio.AppVolumeDown` / `Audio.AppMuteToggle` /
 `Audio.AppSetVolume` — act on one application, assigned from the command menu
 under Audio → Applications. A binding stores the process name, so it survives
