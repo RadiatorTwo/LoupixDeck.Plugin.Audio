@@ -4,12 +4,20 @@ using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Audio.Rendering;
 
+/// <summary>The symbol drawn for a tile that has no icon of its own.</summary>
+internal enum MixerTileGlyph
+{
+    Speaker,
+    Microphone
+}
+
 /// <summary>What one mixer tile is drawn from.</summary>
 /// <param name="Name">Display name of the application, before any font preparation.</param>
 /// <param name="Percent">Volume, 0 to 100.</param>
 /// <param name="Icon">Application icon as square 0xAARRGGBB pixels, or null for the fallback speaker.</param>
 /// <param name="IconSize">Edge of <paramref name="Icon"/> in pixels.</param>
 /// <param name="MarqueeFrame">Frame counter of the scrolling name; only read for a selected tile with an overlong name.</param>
+/// <param name="Glyph">Symbol shown when <paramref name="Icon"/> is null.</param>
 internal readonly record struct MixerTileData(
     string Name,
     int Percent,
@@ -17,7 +25,8 @@ internal readonly record struct MixerTileData(
     bool Selected,
     uint[]? Icon,
     int IconSize,
-    int MarqueeFrame);
+    int MarqueeFrame,
+    MixerTileGlyph Glyph = MixerTileGlyph.Speaker);
 
 /// <summary>Receives the finished pixels of a tile: 0xAARRGGBB, row-major, <paramref name="size"/> x <paramref name="size"/>.</summary>
 internal delegate void TilePixelSink(ReadOnlySpan<uint> pixels, int size);
@@ -423,7 +432,8 @@ internal sealed partial class MixerTileRenderer
         if (tile.Icon != null)
             _surface.DrawIcon(tile.Icon, tile.IconSize, x, y, edge, alpha, grey: tile.Muted);
         else
-            _surface.DrawIcon(SpeakerGlyph(tile.Muted), 32, x, y, edge, alpha, grey: false);
+            _surface.DrawIcon(tile.Glyph == MixerTileGlyph.Microphone ? MicrophoneGlyph(tile.Muted) : SpeakerGlyph(tile.Muted),
+                32, x, y, edge, alpha, grey: false);
     }
 
     private static (int Edge, int X, int Y, float Opacity, float MutedOpacity) IconSlot(
@@ -431,6 +441,51 @@ internal sealed partial class MixerTileRenderer
     {
         int edge = box.IconEdge(designEdge);
         return (edge, x ?? box.Centre(edge), y, opacity, mutedOpacity);
+    }
+
+    private static uint[] MicrophoneGlyph(bool muted)
+    {
+        uint[] pixels = new uint[32 * 32];
+
+        void Px(int x, int y, int w = 1, int h = 1)
+        {
+            for (int yy = y; yy < y + h; yy++)
+                for (int xx = x; xx < x + w; xx++)
+                    if ((uint)xx < 32 && (uint)yy < 32)
+                        pixels[(yy * 32) + xx] = GlyphColor;
+        }
+
+        // Capsule, 8 wide, with rounded ends.
+        Px(14, 4, 4);
+        Px(13, 5, 6);
+        Px(12, 6, 8, 10);
+        Px(13, 16, 6);
+        Px(14, 17, 4);
+
+        // Holder: a U that opens upwards around the capsule.
+        Px(8, 11, 2, 7);
+        Px(22, 11, 2, 7);
+        Px(9, 18, 2);
+        Px(21, 18, 2);
+        Px(10, 19, 2);
+        Px(20, 19, 2);
+        Px(11, 20, 10);
+        Px(12, 21, 8);
+
+        // Stem and base.
+        Px(15, 22, 2, 4);
+        Px(11, 26, 10, 2);
+
+        if (muted)
+        {
+            // A slash across the whole symbol.
+            for (int i = 0; i < 22; i++)
+            {
+                Px(5 + i, 5 + i, 2);
+            }
+        }
+
+        return pixels;
     }
 
     private static uint[] SpeakerGlyph(bool muted)

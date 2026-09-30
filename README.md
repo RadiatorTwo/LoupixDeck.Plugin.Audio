@@ -66,6 +66,14 @@ An assignment saved before these parameters existed uses the defaults (transpare
 background, outlined text, everything scrolls); untick the two options for a solid
 tile without outline.
 
+`Audio.OutputDevices` and `Audio.InputDevices` open the device list with the same
+tiles and take the same five parameters. A tile shows the device's icon (speaker,
+or microphone for inputs), its volume and its name; the default device carries the
+selection frame, and a muted device is greyed out and struck through. Tapping a tile
+opens that device's volume, mute and default controls. The levels follow the
+devices while the folder is open. A list saved before the tiles existed picks up the
+new look with the defaults.
+
 The tiles are drawn at the size of the key, so they stay sharp on a calibrated key
 (74 px, for example). That needs LoupixDeck with Plugin SDK 1.28.0 or newer; an
 older LoupixDeck receives a 90 px picture and scales it to the key, which softens

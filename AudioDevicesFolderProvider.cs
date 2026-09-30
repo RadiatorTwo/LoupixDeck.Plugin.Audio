@@ -1,3 +1,5 @@
+using System.Text;
+using LoupixDeck.Plugin.Audio.Rendering;
 using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Audio;
@@ -5,18 +7,32 @@ namespace LoupixDeck.Plugin.Audio;
 /// <summary>
 /// Top-level folder for the Windows-Audio command. Lists each active endpoint of
 /// the chosen kind and lets the user open a sub-folder to control volume/mute.
+/// Each endpoint is a tile drawn like a mixer tile (icon, level, name) in the look the command's
+/// parameters choose; the default endpoint carries the selection frame. The levels follow the
+/// devices, so the folder refreshes on a timer while it is open.
 /// </summary>
 public sealed class AudioDevicesFolderProvider : FolderProviderBase
 {
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(750);
+
     private readonly IAudioService _audio;
     private readonly AudioEndpointKind _kind;
     private readonly AudioAliasStore _aliasStore;
     private readonly AudioVisibilityStore _visibility;
     private readonly AudioFolderGrid _grid;
     private readonly IPluginHost _host;
+    private readonly MixerTileStyle _style;
+    private readonly TileSlotPainter _painter;
+
+    private IReadOnlyList<DeviceRow>? _rows;
+    private string? _rendered;
+    private Timer? _refresh;
+
+    /// <summary>An endpoint as the tile shows it, read once per refresh.</summary>
+    private sealed record DeviceRow(AudioEndpointInfo Endpoint, string Name, int Percent, bool Muted);
 
     internal AudioDevicesFolderProvider(IAudioService audio, AudioEndpointKind kind, AudioAliasStore aliasStore,
-        AudioVisibilityStore visibility, AudioFolderGrid grid, IPluginHost host)
+        AudioVisibilityStore visibility, AudioFolderGrid grid, IPluginHost host, MixerTileStyle style)
     {
         _audio = audio;
         _kind = kind;
@@ -24,41 +40,136 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
         _visibility = visibility;
         _grid = grid;
         _host = host;
+        _style = style;
+        _painter = new TileSlotPainter(RaiseEntriesChanged);
     }
 
     // Built while the plugin runs, so the host cannot translate it from the descriptors.
     public override string Title =>
         _host.Tr(_kind == AudioEndpointKind.Render ? "Output Devices" : "Input Devices");
 
-    public override void OnEnter() => _aliasStore.Changed += RaiseEntriesChanged;
+    public override void OnEnter()
+    {
+        _aliasStore.Changed += OnAliasChanged;
 
-    public override void OnExit() => _aliasStore.Changed -= RaiseEntriesChanged;
+        // Force the first frame: the folder may have been open before with other content.
+        _rendered = null;
+        Reload();
+        // The timer only lives while the folder is open, so a closed folder costs nothing.
+        _refresh = new Timer(_ => Reload(), null, RefreshInterval, RefreshInterval);
+    }
+
+    public override void OnExit()
+    {
+        _aliasStore.Changed -= OnAliasChanged;
+        _refresh?.Dispose();
+        _refresh = null;
+        _painter.Stop();
+    }
 
     public override IReadOnlyList<FolderEntry> BuildEntries()
     {
-        var endpoints = _visibility.Visible(_audio.GetEndpoints(_kind));
-        var entries = new List<FolderEntry>(endpoints.Count);
+        IReadOnlyList<DeviceRow> rows = _rows ??= ReadRows();
+        List<FolderEntry> entries = new(rows.Count);
+        HashSet<string> used = [];
 
         // Fill the slots in reading order, skipping the reserved back-button slot.
         int index = 0;
-        foreach (var ep in endpoints)
+        foreach (DeviceRow row in rows)
         {
             int slot = _grid.SlotForIndex(index++);
             if (slot < 0) break; // grid full
 
-            var capturedEp = ep;
+            // The default endpoint is the one in use, so it is what the frame marks.
+            MixerTileData data = new(row.Name, row.Percent, row.Muted, row.Endpoint.IsDefault, null, 0,
+                _painter.Frame, GlyphFor(_kind));
+
+            TileSlotSpec spec = new(
+                slot,
+                row.Muted ? PluginColor.FromRgb(0x6E, 0x76, 0x7E) : PluginColor.FromRgb(0xFF, 0xFF, 0xFF),
+                OpensFolder: new AudioDeviceControlFolderProvider(_audio, row.Endpoint, _kind, _aliasStore, _host));
+
+            entries.Add(_painter.Entry(spec, data, _style,
+                $"{row.Endpoint.Id}|{row.Percent}|{row.Muted}|{row.Endpoint.IsDefault}|{row.Name}", used));
+        }
+
+        _painter.Prune(index, used);
+
+        if (entries.Count == 0)
+        {
             entries.Add(new FolderEntry
             {
-                SlotIndex = slot,
-                Text = _aliasStore.Resolve(capturedEp),
-                BackColor = capturedEp.IsDefault
-                    ? PluginColor.FromRgb(0x20, 0x60, 0x30)
-                    : PluginColor.FromRgb(0x20, 0x20, 0x40),
-                TextSize = 13,
-                Bold = capturedEp.IsDefault,
-                OpensFolder = new AudioDeviceControlFolderProvider(_audio, capturedEp, _kind, _aliasStore, _host)
+                SlotIndex = 0,
+                Text = _host.Tr("No devices"),
+                TextSize = 14,
+                BackColor = PluginColor.FromRgb(0x30, 0x30, 0x30)
             });
         }
+
         return entries;
+    }
+
+    private static MixerTileGlyph GlyphFor(AudioEndpointKind kind) =>
+        kind == AudioEndpointKind.Capture ? MixerTileGlyph.Microphone : MixerTileGlyph.Speaker;
+
+    private IReadOnlyList<DeviceRow> ReadRows()
+    {
+        List<DeviceRow> rows = [];
+        foreach (AudioEndpointInfo endpoint in _visibility.Visible(_audio.GetEndpoints(_kind)))
+        {
+            // An endpoint that vanishes between the listing and the read must not take the folder down.
+            float volume = 0f;
+            bool muted = false;
+            try
+            {
+                volume = _audio.GetVolume(endpoint.Id);
+                muted = _audio.GetMute(endpoint.Id);
+            }
+            catch (Exception ex)
+            {
+                _host.Logger?.Warn($"Audio devices: could not read '{endpoint.FriendlyName}': {ex.Message}");
+            }
+
+            rows.Add(new DeviceRow(endpoint, _aliasStore.Resolve(endpoint), (int)Math.Round(volume * 100f), muted));
+        }
+        return rows;
+    }
+
+    private void OnAliasChanged()
+    {
+        // A renamed device has to show its new name even though nothing else changed.
+        _rendered = null;
+        Reload();
+    }
+
+    private void Reload()
+    {
+        _rows = ReadRows();
+        RaiseIfChanged();
+    }
+
+    /// <summary>
+    /// Announces new entries only when the tiles would actually look different. The host repaints every
+    /// slot of the folder on each change, so raising the event on every timer tick would push a full
+    /// redraw to the device more than once a second for nothing.
+    /// </summary>
+    private void RaiseIfChanged()
+    {
+        IReadOnlyList<DeviceRow> rows = _rows ?? [];
+        _painter.UpdateMarquee(rows.Select(row => (row.Name, row.Endpoint.IsDefault)), _style);
+
+        StringBuilder builder = new();
+        builder.Append(_painter.KeySize).Append('|');
+        foreach (DeviceRow row in rows)
+        {
+            builder.Append(row.Endpoint.Id).Append(':').Append(row.Name).Append(':').Append(row.Percent).Append(':')
+                .Append(row.Muted ? '1' : '0').Append(':').Append(row.Endpoint.IsDefault ? '1' : '0').Append('|');
+        }
+
+        string snapshot = builder.ToString();
+        if (string.Equals(snapshot, _rendered, StringComparison.Ordinal)) return;
+
+        _rendered = snapshot;
+        RaiseEntriesChanged();
     }
 }

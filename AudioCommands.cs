@@ -17,7 +17,9 @@ internal sealed class AudioOutputFolderCommand(IAudioService audio, AudioAliasSt
         Icon = AudioButtonLayouts.Speaker,
         ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Speaker, "Output"),
         Description = "Open the output device picker folder",
-        HiddenFromMenu = true
+        HiddenFromMenu = true,
+        ParameterTemplate = MixerTileStyle.ParameterTemplate,
+        Parameters = MixerTileStyle.Parameters()
     };
 
     public ButtonTargets SupportedTargets => ButtonTargets.TouchButton;
@@ -25,7 +27,8 @@ internal sealed class AudioOutputFolderCommand(IAudioService audio, AudioAliasSt
     public Task Execute(CommandContext ctx)
     {
         AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
-        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Render, aliasStore, visibility, grid, ctx.Host));
+        MixerTileStyle style = MixerTileStyle.FromParameters(ctx.Parameters);
+        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Render, aliasStore, visibility, grid, ctx.Host, style));
         return Task.CompletedTask;
     }
 }
@@ -42,7 +45,9 @@ internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasSto
         Icon = AudioButtonLayouts.Microphone,
         ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Microphone, "Input"),
         Description = "Open the input device picker folder",
-        HiddenFromMenu = true
+        HiddenFromMenu = true,
+        ParameterTemplate = MixerTileStyle.ParameterTemplate,
+        Parameters = MixerTileStyle.Parameters()
     };
 
     public ButtonTargets SupportedTargets => ButtonTargets.TouchButton;
@@ -50,7 +55,8 @@ internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasSto
     public Task Execute(CommandContext ctx)
     {
         AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
-        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Capture, aliasStore, visibility, grid, ctx.Host));
+        MixerTileStyle style = MixerTileStyle.FromParameters(ctx.Parameters);
+        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Capture, aliasStore, visibility, grid, ctx.Host, style));
         return Task.CompletedTask;
     }
 }
@@ -67,26 +73,8 @@ internal sealed class AudioMixerFolderCommand(IAudioService audio, AppIdentityCa
         ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Mixer, "Mixer"),
         Description = "Open the per-application volume mixer",
         HiddenFromMenu = true,
-        // The parameters are optional in effect: a binding saved before they existed has none
-        // and gets the defaults.
-        ParameterTemplate = "({layout},{font},{transparent},{outlined},{scroll})",
-        Parameters =
-        [
-            new CommandParameter("layout", typeof(MixerTileLayout))
-            {
-                DefaultValue = nameof(MixerTileLayout.Top)
-            },
-            new CommandParameter("font", typeof(MixerTileFont))
-            {
-                DefaultValue = nameof(MixerTileFont.Smooth)
-            },
-            new CommandParameter("transparent", typeof(bool)) { DefaultValue = "True" },
-            new CommandParameter("outlined", typeof(bool)) { DefaultValue = "True" },
-            new CommandParameter("scroll", typeof(MixerTileScroll))
-            {
-                DefaultValue = nameof(MixerTileScroll.All)
-            }
-        ]
+        ParameterTemplate = MixerTileStyle.ParameterTemplate,
+        Parameters = MixerTileStyle.Parameters()
     };
 
     public ButtonTargets SupportedTargets => ButtonTargets.SimpleButton | ButtonTargets.TouchButton;

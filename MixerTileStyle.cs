@@ -1,3 +1,5 @@
+using LoupixDeck.PluginSdk;
+
 namespace LoupixDeck.Plugin.Audio;
 
 /// <summary>
@@ -54,6 +56,22 @@ internal readonly record struct MixerTileStyle(MixerTileLayout Layout, MixerTile
     bool Transparent = true, bool Outlined = true, MixerTileScroll Scroll = MixerTileScroll.All)
 {
     public static MixerTileStyle Default { get; } = new(MixerTileLayout.Top, MixerTileFont.Smooth);
+
+    /// <summary>The parameter placeholder of every command that shows tiles, in the order <see cref="FromParameters"/> reads them.</summary>
+    public const string ParameterTemplate = "({layout},{font},{transparent},{outlined},{scroll})";
+
+    /// <summary>
+    /// The parameters of every command that shows tiles. All of them are optional in effect: a binding saved
+    /// before they existed has none and gets the defaults.
+    /// </summary>
+    public static IReadOnlyList<CommandParameter> Parameters() =>
+    [
+        new CommandParameter("layout", typeof(MixerTileLayout)) { DefaultValue = nameof(MixerTileLayout.Top) },
+        new CommandParameter("font", typeof(MixerTileFont)) { DefaultValue = nameof(MixerTileFont.Smooth) },
+        new CommandParameter("transparent", typeof(bool)) { DefaultValue = "True" },
+        new CommandParameter("outlined", typeof(bool)) { DefaultValue = "True" },
+        new CommandParameter("scroll", typeof(MixerTileScroll)) { DefaultValue = nameof(MixerTileScroll.All) }
+    ];
 
     /// <summary>Reads layout and font from the command parameters, falling back to the default for anything missing or unknown.</summary>
     public static MixerTileStyle FromParameters(string[]? parameters)
