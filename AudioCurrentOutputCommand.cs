@@ -30,7 +30,8 @@ internal sealed class AudioCurrentOutputCommand(
         DisplayName = "Audio: Current Output",
         Group = "Audio",
         Icon = "\U000F057E",
-        Description = "Show the active output device, and open the picker when pressed"
+        Description = "Show the active output device, and open the picker when pressed",
+        HiddenFromMenu = true
     };
 
     public ButtonTargets SupportedTargets => ButtonTargets.TouchButton;

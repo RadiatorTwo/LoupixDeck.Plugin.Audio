@@ -63,7 +63,8 @@ internal sealed class AudioMixerFolderCommand(IAudioService audio, AppIdentityCa
         Group = "Audio",
         Icon = "\U000F057E",
         Description = "Open the per-application volume mixer",
-        // Both parameters are optional in effect: a binding saved before they existed has none
+        HiddenFromMenu = true,
+        // The parameters are optional in effect: a binding saved before they existed has none
         // and gets the defaults.
         ParameterTemplate = "({layout},{font},{transparent},{outlined},{scroll})",
         Parameters =

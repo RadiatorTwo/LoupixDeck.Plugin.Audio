@@ -81,7 +81,8 @@ internal sealed class AudioStopSoundCommand(IAudioService audio, IPluginHost hos
         DisplayName = "Audio: Stop Sounds",
         Group = "Audio",
         Icon = "\U000F04DB",
-        Description = "Stop every sound started by Play Sound"
+        Description = "Stop every sound started by Play Sound",
+        HiddenFromMenu = true
     };
 
     public ButtonTargets SupportedTargets =>
