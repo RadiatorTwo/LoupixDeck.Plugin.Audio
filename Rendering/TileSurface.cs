@@ -87,19 +87,42 @@ internal sealed class TileSurface
         if (alpha == 0) return;
 
         uint under = _pixels[index];
+        uint underAlpha = under >> 24;
+        if (underAlpha == 0)
+        {
+            _pixels[index] = color;
+            return;
+        }
+
+        // Source-over on straight alpha. With an opaque backdrop this is the plain blend; with a transparent
+        // one (the transparent tile) the result stays partly transparent, so the wallpaper still shows through.
         uint inverse = 255 - alpha;
-        uint r = ((((color >> 16) & 0xFF) * alpha) + (((under >> 16) & 0xFF) * inverse)) / 255;
-        uint g = ((((color >> 8) & 0xFF) * alpha) + (((under >> 8) & 0xFF) * inverse)) / 255;
-        uint b = (((color & 0xFF) * alpha) + ((under & 0xFF) * inverse)) / 255;
-        _pixels[index] = 0xFF000000u | (r << 16) | (g << 8) | b;
+        uint outAlpha = alpha + ((underAlpha * inverse) / 255);
+        uint weightUnder = underAlpha * inverse;
+        uint weightNew = alpha * 255;
+        uint total = outAlpha * 255;
+        uint r = ((((color >> 16) & 0xFF) * weightNew) + (((under >> 16) & 0xFF) * weightUnder)) / total;
+        uint g = ((((color >> 8) & 0xFF) * weightNew) + (((under >> 8) & 0xFF) * weightUnder)) / total;
+        uint b = (((color & 0xFF) * weightNew) + ((under & 0xFF) * weightUnder)) / total;
+        _pixels[index] = (outAlpha << 24) | (r << 16) | (g << 8) | b;
     }
 
     /// <summary>
     /// Draws bitmap-font text with its top-left at (x, y) and returns the x past the last glyph. The
     /// scale is a whole multiple, so no glyph pixel is ever split.
     /// </summary>
-    public int DrawText(string text, int x, int y, int scale, uint color)
+    public int DrawText(string text, int x, int y, int scale, uint color, uint? outline = null)
     {
+        if (outline is { } outlineColor)
+        {
+            // The outline is the text drawn once in every direction around its place, then the text on top.
+            int reach = (scale + 1) / 2;
+            for (int oy = -reach; oy <= reach; oy++)
+                for (int ox = -reach; ox <= reach; ox++)
+                    if (ox != 0 || oy != 0)
+                        DrawText(text, x + ox, y + oy, scale, outlineColor);
+        }
+
         foreach (char c in text)
         {
             byte[] rows = BitmapFont5x7.Rows(c);

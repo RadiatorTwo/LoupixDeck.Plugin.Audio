@@ -34,7 +34,10 @@ public enum MixerTileFont
 /// carries no parameters (every mixer command saved before the tiles were redesigned) gets
 /// the defaults, so it keeps working and simply picks up the new look.
 /// </summary>
-internal readonly record struct MixerTileStyle(MixerTileLayout Layout, MixerTileFont Font)
+/// <param name="Transparent">No tile background: the wallpaper (or the device's black) shows through.</param>
+/// <param name="Outlined">Dark outline around the text, for legibility on a wallpaper.</param>
+internal readonly record struct MixerTileStyle(MixerTileLayout Layout, MixerTileFont Font,
+    bool Transparent = false, bool Outlined = false)
 {
     public static MixerTileStyle Default { get; } = new(MixerTileLayout.Top, MixerTileFont.Smooth);
 
@@ -58,6 +61,9 @@ internal readonly record struct MixerTileStyle(MixerTileLayout Layout, MixerTile
             font = parsedFont;
         }
 
-        return new MixerTileStyle(layout, font);
+        bool transparent = parameters is { Length: > 2 } && bool.TryParse(parameters[2], out bool t) && t;
+        bool outlined = parameters is { Length: > 3 } && bool.TryParse(parameters[3], out bool o) && o;
+
+        return new MixerTileStyle(layout, font, transparent, outlined);
     }
 }

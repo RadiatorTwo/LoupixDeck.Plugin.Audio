@@ -43,6 +43,10 @@ internal sealed partial class MixerTileRenderer
     private const uint StrikeColor = 0xFF8A939C;
     private const uint Accent = 0xFF56C2F5;
     private const uint Track = 0xFF24282D;
+
+    // On a transparent tile the track of the level is translucent black, so the wallpaper still shows through it.
+    private const uint TrackTransparent = 0x99000000;
+    private const uint OutlineColor = 0xFF000000;
     private const uint MutedFill = 0xFF4A5158;
     private const uint GlyphColor = 0xFF8A939C;
     private const uint BadgeColor = 0xFFD9DEE3;
@@ -62,6 +66,8 @@ internal sealed partial class MixerTileRenderer
     private static readonly Regex Whitespace = WhitespaceRegex();
 
     private readonly object _gate = new();
+    private bool _transparent;
+    private bool _outlined;
     private TileSurface _surface = new(TileSurface.DesignSize);
 
     [GeneratedRegex(@"\s*\(.*\)\s*$")]
@@ -103,6 +109,9 @@ internal sealed partial class MixerTileRenderer
         lock (_gate)
         {
             if (_surface.Size != size) _surface = new TileSurface(size);
+
+            _transparent = style.Transparent;
+            _outlined = style.Outlined;
 
             Box box = new(size);
             string prepared = BitmapFont5x7.Prepare(NormalizeName(tile.Name));
@@ -151,13 +160,17 @@ internal sealed partial class MixerTileRenderer
         string number = tile.Percent.ToString(CultureInfo.InvariantCulture);
         float nameSize = Math.Max(8f, (float)(13 * box.Scale));
 
+        void Line(string text, int x, int centerY, int width, float fontSize, TextHAlign align, PluginColor color,
+            bool bold) =>
+            SmoothLine(canvas, text, x, centerY, width, fontSize, align, color, bold, style.Outlined);
+
         if (layout == MixerTileLayout.Left)
         {
             float numberSize = SmoothSize(canvas, "100", 16 * box.Scale, box.Width - box.IconEdge(32) - 2);
             int top = box.At(13);
             int w = (int)Math.Ceiling(canvas.MeasureText(number, numberSize, bold: true));
-            SmoothLine(canvas, number, box.Right - w, top + 7, w, numberSize, TextHAlign.Right, percentColor, bold: true);
-            SmoothLine(canvas, "%", box.Right - 16, top + 14 + 2 + 4, 16, nameSize, TextHAlign.Right, percentColor, bold: true);
+            Line(number, box.Right - w, top + 7, w, numberSize, TextHAlign.Right, percentColor, bold: true);
+            Line("%", box.Right - 16, top + 14 + 2 + 4, 16, nameSize, TextHAlign.Right, percentColor, bold: true);
             if (tile.Muted)
                 canvas.FillRectangle(box.Right - w - 1, top + 7, w + 2, 2, ToColor(StrikeColor));
 
@@ -165,7 +178,7 @@ internal sealed partial class MixerTileRenderer
                 t => canvas.MeasureText(t, nameSize), t => TruncateToFit(canvas, t, nameSize, box.Width));
             for (int i = 0; i < lines.Count; i++)
                 // 14 px apart in the design, the host font being taller than the bitmap font's 9 px pitch.
-                SmoothLine(canvas, lines[i], box.Left, box.At(i == 0 ? 54 : 68), box.Width, nameSize,
+                Line(lines[i], box.Left, box.At(i == 0 ? 54 : 68), box.Width, nameSize,
                     TextHAlign.Left, nameColor, bold: tile.Selected);
             return;
         }
@@ -183,20 +196,21 @@ internal sealed partial class MixerTileRenderer
         int band = 7 * PercentScale(layout, box);
         int centerY = PercentTop(tile, layout, box) + (band / 2);
         int percentWidth = (int)Math.Ceiling(canvas.MeasureText(percent, percentSize, bold: true));
-        SmoothLine(canvas, percent, box.Left, centerY, box.Width, percentSize, TextHAlign.Center, percentColor, bold: true);
+        Line(percent, box.Left, centerY, box.Width, percentSize, TextHAlign.Center, percentColor, bold: true);
         if (tile.Muted)
             canvas.FillRectangle(box.Centre(percentWidth) - 1, centerY, percentWidth + 2, 2, ToColor(StrikeColor));
 
-        SmoothLine(canvas, TruncateToFit(canvas, name, nameSize, box.Width), box.Left,
+        Line(TruncateToFit(canvas, name, nameSize, box.Width), box.Left,
             box.TextTop(designName, 1, 1) + 4, box.Width, nameSize, TextHAlign.Center, nameColor, bold: tile.Selected);
     }
 
     /// <summary>One line of host text, vertically centred on <paramref name="centerY"/>.</summary>
     private static void SmoothLine(IRenderCanvas canvas, string text, int x, int centerY, int width, float fontSize,
-        TextHAlign align, PluginColor color, bool bold)
+        TextHAlign align, PluginColor color, bool bold, bool outlined)
     {
         int height = (int)Math.Ceiling(fontSize * 1.5);
-        canvas.DrawText(text, x, centerY - (height / 2), width, height, color, fontSize, align, TextVAlign.Middle, bold);
+        canvas.DrawText(text, x, centerY - (height / 2), width, height, color, fontSize, align, TextVAlign.Middle,
+            bold, italic: false, outlined, outlineColor: ToColor(OutlineColor));
     }
 
     /// <summary>The name cut to fit <paramref name="room"/> pixels in the host font, with an ellipsis.</summary>
@@ -267,7 +281,8 @@ internal sealed partial class MixerTileRenderer
     private void DrawBackdrop(MixerTileData tile, Box box)
     {
         _surface.ResetClip();
-        _surface.Clear(tile.Selected ? BackgroundSelected : Background);
+        // A transparent tile keeps no backdrop at all; the selection frame alone marks the selected one.
+        _surface.Clear(_transparent ? 0u : tile.Selected ? BackgroundSelected : Background);
 
         // The selection frame goes down first, so the tile's content lies over it. It sits well inside the
         // edge: the key cap and the viewing angle hide the outermost pixels, and a frame at the very edge
@@ -290,7 +305,7 @@ internal sealed partial class MixerTileRenderer
             float radius = (float)(31 * box.Scale);
             float thickness = Math.Max(2, (float)(3 * box.Scale));
 
-            _surface.DrawArc(cx, cy, radius, thickness, StartDegrees, Sweep, Track);
+            _surface.DrawArc(cx, cy, radius, thickness, StartDegrees, Sweep, _transparent ? TrackTransparent : Track);
             if (tile.Percent > 0)
                 _surface.DrawArc(cx, cy, radius, thickness, StartDegrees, Sweep * tile.Percent / 100f, fill);
             return;
@@ -298,7 +313,7 @@ internal sealed partial class MixerTileRenderer
 
         int height = box.Len(4, 2);
         int y = box.Bottom - height;
-        _surface.Fill(box.Left, y, box.Width, height, Track);
+        _surface.Fill(box.Left, y, box.Width, height, _transparent ? TrackTransparent : Track);
         _surface.Fill(box.Left, y, (int)Math.Round(box.Width * tile.Percent / 100.0), height, fill);
     }
 
@@ -393,14 +408,14 @@ internal sealed partial class MixerTileRenderer
             int w = BitmapFont5x7.Measure(number, scale);
             int x = box.Right - w;
             int top = box.At(13);
-            _surface.DrawText(number, x, top, scale, percentColor);
-            _surface.DrawText("%", box.Right - BitmapFont5x7.GlyphWidth, top + (Glyph * scale) + 2, 1, percentColor);
+            Text(number, x, top, scale, percentColor);
+            Text("%", box.Right - BitmapFont5x7.GlyphWidth, top + (Glyph * scale) + 2, 1, percentColor);
             if (tile.Muted)
                 _surface.Fill(x - scale, top + (3 * scale), w + (2 * scale), scale, StrikeColor);
 
             List<string> lines = WrapTwoLines(name, box.Width, t => BitmapFont5x7.Measure(t), t => TruncatePixel(t, box.Width));
             for (int i = 0; i < lines.Count; i++)
-                _surface.DrawText(lines[i], box.Left, box.TextTop(i == 0 ? 51 : 60, 1, 1), 1, nameColor);
+                Text(lines[i], box.Left, box.TextTop(i == 0 ? 51 : 60, 1, 1), 1, nameColor);
             return;
         }
 
@@ -416,7 +431,7 @@ internal sealed partial class MixerTileRenderer
         int pw = BitmapFont5x7.Measure(percent, percentScale);
         int px = box.Centre(pw);
         int py = PercentTop(tile, layout, box);
-        _surface.DrawText(percent, px, py, percentScale, percentColor);
+        Text(percent, px, py, percentScale, percentColor);
         if (tile.Muted)
             _surface.Fill(px - percentScale, py + (3 * percentScale), pw + (2 * percentScale), percentScale, StrikeColor);
 
@@ -454,6 +469,10 @@ internal sealed partial class MixerTileRenderer
         return size;
     }
 
+    /// <summary>Bitmap-font text, with the dark outline when the tile asks for one.</summary>
+    private void Text(string text, int x, int y, int scale, uint color) =>
+        _surface.DrawText(text, x, y, scale, color, _outlined ? OutlineColor : null);
+
     /// <summary>The largest whole scale up to <paramref name="wanted"/> at which <paramref name="text"/> fits <paramref name="room"/>.</summary>
     private static int FitScale(string text, int wanted, int room)
     {
@@ -467,14 +486,14 @@ internal sealed partial class MixerTileRenderer
         int width = BitmapFont5x7.Measure(name);
         if (width <= box.Width)
         {
-            _surface.DrawText(name, box.Centre(width), y, 1, color);
+            Text(name, box.Centre(width), y, 1, color);
             return;
         }
 
         if (!tile.Selected)
         {
             string cut = TruncatePixel(name, box.Width);
-            _surface.DrawText(cut, box.Centre(BitmapFont5x7.Measure(cut)), y, 1, color);
+            Text(cut, box.Centre(BitmapFont5x7.Measure(cut)), y, 1, color);
             return;
         }
 
@@ -485,8 +504,8 @@ internal sealed partial class MixerTileRenderer
         int offset = Math.Max(0, frame - MarqueeHoldFrames);
 
         _surface.SetClip(box.Left, y - 1, box.Width, Glyph + 2);
-        _surface.DrawText(name, box.Left - offset, y, 1, color);
-        _surface.DrawText(name, box.Left - offset + period, y, 1, color);
+        Text(name, box.Left - offset, y, 1, color);
+        Text(name, box.Left - offset + period, y, 1, color);
         _surface.ResetClip();
     }
 
