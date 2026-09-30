@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
 using System.Text;
 using LoupixDeck.Plugin.Audio.Rendering;
 using LoupixDeck.PluginSdk;
@@ -19,38 +17,18 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(750);
     private const float StepScalar = 0.05f;
 
-    // A scrolling name moves 20 px per second. Every step repaints the folder, so it advances
-    // 2 px every 100 ms instead of 1 px every 50 ms: the same speed for half the repaints.
-    private static readonly TimeSpan MarqueeInterval = TimeSpan.FromMilliseconds(100);
-    private const int MarqueeStepFrames = 2;
-
-    // From SDK 1.28.0 the host lets a slot draw itself on a canvas of the key's real size, so the tile is
-    // pixel-exact on any key calibration. An older host only takes a PNG, which it has to scale to the key.
-    private static readonly bool HostDrawsSlots = SdkInfo.Version >= new Version(1, 28, 0);
-
     private readonly IAudioService _audio;
     private readonly AudioFolderGrid _grid;
     private readonly IPluginHost _host;
     private readonly MixerTileStyle _style;
     private readonly AppIdentityCache _identity;
-    private readonly MixerTileRenderer _renderer = new();
-    private readonly Dictionary<string, byte[]> _tiles = [];
+    private readonly TileSlotPainter _painter;
     private readonly Dictionary<int, RotaryOverride> _rotaries;
 
     private IReadOnlyList<AudioSessionInfo> _sessions = [];
     private string? _selectedAppId;
     private string? _rendered;
     private Timer? _refresh;
-    private Timer? _marquee;
-    private int _marqueeFrame;
-
-    // The key size is only known once the host draws a slot; until then the design's 90 px is assumed. It decides
-    // whether a name still fits and so whether the marquee has to run.
-    private volatile int _keySize = TileSurface.DesignSize;
-
-    // Which slots drew a name that is wider than the tile in the smooth font, learned from drawing it: only the
-    // canvas can measure that font.
-    private readonly ConcurrentDictionary<int, bool> _overflowBySlot = [];
 
     internal AudioMixerFolderProvider(IAudioService audio, AudioFolderGrid grid, IPluginHost host,
         MixerTileStyle style, AppIdentityCache identity)
@@ -60,6 +38,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         _host = host;
         _style = style;
         _identity = identity;
+        _painter = new TileSlotPainter(RaiseEntriesChanged);
         _rotaries = new Dictionary<int, RotaryOverride>
         {
             [0] = new RotaryOverride
@@ -88,7 +67,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     {
         _refresh?.Dispose();
         _refresh = null;
-        StopMarquee();
+        _painter.Stop();
     }
 
     public override IReadOnlyList<FolderEntry> BuildEntries()
@@ -108,16 +87,11 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
             AppIdentity identity = _identity.Resolve(captured.ExecutablePath);
             string name = NameOf(captured, identity);
 
-            // One frame counter for all tiles; a tile whose name fits, or that may not scroll, ignores it.
-            int frame = _marquee != null ? _marqueeFrame : 0;
-            MixerTileData data = new(name, percent, captured.Muted, selected, identity.Icon, identity.IconSize, frame);
-            // The PNG fallback caches pictures per state, so a picture that does not move must not depend on the frame.
-            int pictureFrame = MixerTileRenderer.Scrolls(name, selected, _style, _keySize) ? frame : 0;
+            MixerTileData data = new(name, percent, captured.Muted, selected, identity.Icon, identity.IconSize,
+                _painter.Frame);
 
-            SlotSpec spec = new(
+            TileSlotSpec spec = new(
                 slot,
-                // Empty with the pixel font: the picture already carries the text.
-                MixerTileRenderer.HostText(data, _style),
                 captured.Muted ? PluginColor.FromRgb(0x6E, 0x76, 0x7E) : PluginColor.FromRgb(0xFF, 0xFF, 0xFF),
                 () =>
                 {
@@ -126,23 +100,11 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
                     return Task.CompletedTask;
                 });
 
-            entries.Add(HostDrawsSlots
-                ? DrawnSlot(spec, data)
-                : PictureSlot(spec, data with { MarqueeFrame = pictureFrame },
-                    $"{captured.AppId}|{percent}|{captured.Muted}|{selected}|{name}|{captured.ExecutablePath}|{pictureFrame}",
-                    used));
+            entries.Add(_painter.Entry(spec, data, _style,
+                $"{captured.AppId}|{percent}|{captured.Muted}|{selected}|{name}|{captured.ExecutablePath}", used));
         }
 
-        // A slot that is no longer shown must not keep the marquee alive.
-        foreach (int slot in _overflowBySlot.Keys.Where(k => k >= index).ToList())
-            _overflowBySlot.TryRemove(slot, out _);
-
-        // Pictures of states that are gone must not pile up, least of all every frame of a marquee.
-        lock (_tiles)
-        {
-            foreach (string stale in _tiles.Keys.Where(key => !used.Contains(key)).ToList())
-                _tiles.Remove(stale);
-        }
+        _painter.Prune(index, used);
 
         if (entries.Count == 0)
         {
@@ -161,101 +123,6 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     /// <summary>The executable's file description ("Google Chrome") when it has one, otherwise what the session calls itself.</summary>
     private static string NameOf(AudioSessionInfo session, AppIdentity identity) =>
         identity.FriendlyName ?? session.DisplayName;
-
-    private readonly record struct SlotSpec(int Slot, string Text, PluginColor TextColor, Func<Task> OnPress);
-
-    /// <summary>
-    /// A slot the host asks to draw itself, on a canvas of the key's real size. Kept out of line: the
-    /// JIT resolves <c>FolderEntry.Render</c> when it compiles this method, which must not happen on a
-    /// host whose SDK lacks the member.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private FolderEntry DrawnSlot(SlotSpec spec, MixerTileData data) => new()
-    {
-        SlotIndex = spec.Slot,
-        // The callback draws the text itself, so the host has none to add.
-        Text = string.Empty,
-        TextSize = 14,
-        TextColor = spec.TextColor,
-        BackColor = PluginColor.FromRgb(0x0A, 0x0B, 0x0D),
-        OnPress = spec.OnPress,
-        Render = canvas =>
-        {
-            int size = Math.Min(canvas.Width, canvas.Height);
-            _keySize = size;
-            // The picture goes on the canvas through DrawPixels, and the smooth-font text is drawn over it with the
-            // host font at exact positions. That text is only measurable here, on the canvas, so the drawing also
-            // tells whether the selected name is too wide and has to scroll.
-            _overflowBySlot[spec.Slot] = _renderer.Draw(canvas, data, _style, size);
-        }
-    };
-
-    /// <summary>The same slot as a 90 x 90 PNG, for a host without <c>FolderEntry.Render</c>.</summary>
-    private FolderEntry PictureSlot(SlotSpec spec, MixerTileData data, string key, HashSet<string> used)
-    {
-        used.Add(key);
-        byte[] png;
-        lock (_tiles)
-        {
-            if (!_tiles.TryGetValue(key, out byte[]? cached))
-            {
-                cached = _renderer.RenderPng(data, _style);
-                _tiles[key] = cached;
-            }
-            png = cached;
-        }
-
-        return new FolderEntry
-        {
-            SlotIndex = spec.Slot,
-            Image = png,
-            Text = spec.Text,
-            TextSize = 14,
-            TextColor = spec.TextColor,
-            BackColor = PluginColor.FromRgb(0x0A, 0x0B, 0x0D),
-            OnPress = spec.OnPress
-        };
-    }
-
-    /// <summary>Whether any tile has a name that has to scroll to be read.</summary>
-    private bool AnyNeedsMarquee()
-    {
-        // The smooth font can only tell from the canvas that a name is too wide, the pixel font can tell up front.
-        if (_overflowBySlot.Values.Any(overflows => overflows)) return true;
-
-        foreach (AudioSessionInfo session in _sessions)
-        {
-            bool selected = string.Equals(session.AppId, _selectedAppId, StringComparison.Ordinal);
-            if (MixerTileRenderer.Scrolls(NameOf(session, _identity.Resolve(session.ExecutablePath)), selected, _style, _keySize))
-                return true;
-        }
-        return false;
-    }
-
-    /// <summary>Runs the marquee timer only while some tile has a name to move.</summary>
-    private void UpdateMarquee()
-    {
-        if (!AnyNeedsMarquee())
-        {
-            StopMarquee();
-            return;
-        }
-
-        _marquee ??= new Timer(_ => TickMarquee(), null, MarqueeInterval, MarqueeInterval);
-    }
-
-    private void StopMarquee()
-    {
-        _marquee?.Dispose();
-        _marquee = null;
-        _marqueeFrame = 0;
-    }
-
-    private void TickMarquee()
-    {
-        _marqueeFrame += MarqueeStepFrames;
-        RaiseEntriesChanged();
-    }
 
     private void Reload()
     {
@@ -282,7 +149,10 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     /// </summary>
     private void RaiseIfChanged()
     {
-        UpdateMarquee();
+        _painter.UpdateMarquee(
+            _sessions.Select(session => (NameOf(session, _identity.Resolve(session.ExecutablePath)),
+                string.Equals(session.AppId, _selectedAppId, StringComparison.Ordinal))),
+            _style);
 
         string snapshot = DescribeEntries();
         if (string.Equals(snapshot, _rendered, StringComparison.Ordinal)) return;
@@ -295,7 +165,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private string DescribeEntries()
     {
         StringBuilder builder = new();
-        builder.Append(_selectedAppId).Append('|').Append(_keySize).Append('|');
+        builder.Append(_selectedAppId).Append('|').Append(_painter.KeySize).Append('|');
 
         foreach (AudioSessionInfo session in _sessions)
         {
