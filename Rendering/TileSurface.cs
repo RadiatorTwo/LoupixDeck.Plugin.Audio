@@ -11,7 +11,29 @@ internal sealed class TileSurface
 
     private readonly uint[] _pixels = new uint[Size * Size];
 
+    private int _clipLeft;
+    private int _clipTop;
+    private int _clipRight = Size;
+    private int _clipBottom = Size;
+
     public ReadOnlySpan<uint> Pixels => _pixels;
+
+    /// <summary>Restricts every following draw call to a rectangle, for the scrolling name.</summary>
+    public void SetClip(int x, int y, int width, int height)
+    {
+        _clipLeft = Math.Max(0, x);
+        _clipTop = Math.Max(0, y);
+        _clipRight = Math.Min(Size, x + width);
+        _clipBottom = Math.Min(Size, y + height);
+    }
+
+    public void ResetClip()
+    {
+        _clipLeft = 0;
+        _clipTop = 0;
+        _clipRight = Size;
+        _clipBottom = Size;
+    }
 
     /// <summary>Solid 0xAARRGGBB colour from an opaque 0xRRGGBB value.</summary>
     public static uint Rgb(uint rgb) => 0xFF000000u | rgb;
@@ -34,7 +56,7 @@ internal sealed class TileSurface
     /// <summary>Blends one pixel with straight alpha over the current content.</summary>
     public void Blend(int x, int y, uint color)
     {
-        if ((uint)x >= Size || (uint)y >= Size) return;
+        if (x < _clipLeft || x >= _clipRight || y < _clipTop || y >= _clipBottom) return;
 
         uint alpha = color >> 24;
         int index = (y * Size) + x;
