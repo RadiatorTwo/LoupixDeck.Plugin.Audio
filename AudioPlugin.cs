@@ -20,6 +20,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     private IPluginSettings? _settings;
     private IPluginLogger? _logger;
     private IPluginHost? _host;
+    private readonly AppIdentityCache _appIdentity = new();
 
     internal static readonly TimeSpan VolumeOverlayDuration = TimeSpan.FromMilliseconds(1500);
 
@@ -78,7 +79,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
             new AudioAppVolumeDownCommand(_audio),
             new AudioAppMuteToggleCommand(_audio),
             new AudioAppSetVolumeCommand(_audio),
-            new AudioMixerFolderCommand(_audio),
+            new AudioMixerFolderCommand(_audio, _appIdentity),
         ];
 
         _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings, _aliasStore, host);

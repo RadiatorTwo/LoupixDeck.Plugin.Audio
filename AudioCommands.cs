@@ -54,7 +54,7 @@ internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasSto
 }
 
 /// <summary>Opens the per-application mixer folder.</summary>
-internal sealed class AudioMixerFolderCommand(IAudioService audio) : IPluginCommand
+internal sealed class AudioMixerFolderCommand(IAudioService audio, AppIdentityCache identity) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -85,7 +85,7 @@ internal sealed class AudioMixerFolderCommand(IAudioService audio) : IPluginComm
     {
         AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
         MixerTileStyle style = MixerTileStyle.FromParameters(ctx.Parameters);
-        ctx.Host.OpenFolder(new AudioMixerFolderProvider(audio, grid, ctx.Host, style));
+        ctx.Host.OpenFolder(new AudioMixerFolderProvider(audio, grid, ctx.Host, style, identity));
         return Task.CompletedTask;
     }
 }
