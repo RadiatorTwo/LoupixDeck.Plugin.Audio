@@ -153,7 +153,7 @@ internal sealed partial class MixerTileRenderer
 
         if (layout == MixerTileLayout.Left)
         {
-            float numberSize = Math.Max(9f, (float)(16 * box.Scale));
+            float numberSize = SmoothSize(canvas, "100", 16 * box.Scale, box.Width - box.IconEdge(32) - 2);
             int top = box.At(13);
             int w = (int)Math.Ceiling(canvas.MeasureText(number, numberSize, bold: true));
             SmoothLine(canvas, number, box.Right - w, top + 7, w, numberSize, TextHAlign.Right, percentColor, bold: true);
@@ -179,8 +179,8 @@ internal sealed partial class MixerTileRenderer
 
         // The band the pixel font would use for the percentage; the host font is centred in the same band.
         string percent = number + "%";
-        float percentSize = Math.Max(9f, (float)(designFont * box.Scale));
-        int band = 7 * FitScale(percent, designScale, box.Width);
+        float percentSize = SmoothSize(canvas, "100%", designFont * box.Scale, box.Width);
+        int band = 7 * PercentScale(layout, box);
         int centerY = PercentTop(tile, layout, box) + (band / 2);
         int percentWidth = (int)Math.Ceiling(canvas.MeasureText(percent, percentSize, bold: true));
         SmoothLine(canvas, percent, box.Left, centerY, box.Width, percentSize, TextHAlign.Center, percentColor, bold: true);
@@ -388,7 +388,8 @@ internal sealed partial class MixerTileRenderer
         {
             // The number takes what the icon leaves of the row, and drops a scale before it would touch it.
             int room = box.Width - box.IconEdge(32) - 2;
-            int scale = FitScale(number, 2, room);
+            // Sized for the widest number, so every value of a tile is drawn at the same size.
+            int scale = FitScale("100", 2, room);
             int w = BitmapFont5x7.Measure(number, scale);
             int x = box.Right - w;
             int top = box.At(13);
@@ -411,7 +412,7 @@ internal sealed partial class MixerTileRenderer
         };
 
         string percent = number + "%";
-        int percentScale = FitScale(percent, designScale, box.Width);
+        int percentScale = PercentScale(layout, box);
         int pw = BitmapFont5x7.Measure(percent, percentScale);
         int px = box.Centre(pw);
         int py = PercentTop(tile, layout, box);
@@ -432,8 +433,25 @@ internal sealed partial class MixerTileRenderer
             _ => (45, 2)
         };
 
-        string percent = tile.Percent.ToString(CultureInfo.InvariantCulture) + "%";
-        return box.TextTop(designTop, designScale, FitScale(percent, designScale, box.Width));
+        return box.TextTop(designTop, designScale, PercentScale(layout, box));
+    }
+
+    /// <summary>
+    /// The scale of the centred percentage. It is chosen for "100%", the widest value, so 100 % is not drawn
+    /// smaller than 72 % on a key that has no room for the design's scale.
+    /// </summary>
+    private static int PercentScale(MixerTileLayout layout, Box box) =>
+        FitScale("100%", layout == MixerTileLayout.Background ? 3 : 2, box.Width);
+
+    /// <summary>
+    /// The host-font size for a number, at most <paramref name="wanted"/>, stepped down until the widest value
+    /// (<paramref name="widest"/>) fits <paramref name="room"/>, so all values of a tile share one size.
+    /// </summary>
+    private static float SmoothSize(IRenderCanvas canvas, string widest, double wanted, int room)
+    {
+        float size = Math.Max(9f, (float)wanted);
+        while (size > 9f && canvas.MeasureText(widest, size, bold: true) > room) size -= 0.5f;
+        return size;
     }
 
     /// <summary>The largest whole scale up to <paramref name="wanted"/> at which <paramref name="text"/> fits <paramref name="room"/>.</summary>
