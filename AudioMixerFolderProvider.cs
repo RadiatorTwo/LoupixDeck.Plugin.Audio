@@ -46,6 +46,9 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     // The key size is only known once the host draws a slot; until then the design's 90 px is assumed. It decides
     // whether a name still fits and so whether the marquee has to run.
     private volatile int _keySize = TileSurface.DesignSize;
+
+    // Whether the selected tile's name is wider than the tile in the smooth font, learned from drawing it.
+    private volatile bool _smoothOverflows;
     private string? _marqueeApp;
 
     internal AudioMixerFolderProvider(IAudioService audio, AudioFolderGrid grid, IPluginHost host,
@@ -105,7 +108,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
             string name = NameOf(captured, identity);
 
             // Only the selected tile with an overlong name moves; every other tile keeps one picture.
-            int frame = selected && MixerTileRenderer.Scrolls(name, selected, _style, _keySize) ? _marqueeFrame : 0;
+            int frame = selected && _marquee != null ? _marqueeFrame : 0;
             MixerTileData data = new(name, percent, captured.Muted, selected, identity.Icon, identity.IconSize, frame);
 
             SlotSpec spec = new(
@@ -173,10 +176,11 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         {
             int size = Math.Min(canvas.Width, canvas.Height);
             _keySize = size;
-            _renderer.Render(data, _style, size, (pixels, edge) => canvas.DrawPixels(pixels, edge, edge));
-            // The smooth font is drawn by the host font on the same canvas, at exact positions, instead of
-            // as one centred block of text that would land wherever the line count puts it.
-            _renderer.DrawSmoothText(canvas, data, _style, size);
+            // The picture goes on the canvas through DrawPixels, and the smooth-font text is drawn over it with the
+            // host font at exact positions. That text is only measurable here, on the canvas, so the drawing also
+            // tells whether the selected name is too wide and has to scroll.
+            bool scrolls = _renderer.Draw(canvas, data, _style, size);
+            if (data.Selected) _smoothOverflows = scrolls;
         }
     };
 
@@ -215,7 +219,9 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         foreach (AudioSessionInfo session in _sessions)
         {
             if (!string.Equals(session.AppId, _selectedAppId, StringComparison.Ordinal)) continue;
-            return MixerTileRenderer.Scrolls(NameOf(session, _identity.Resolve(session.ExecutablePath)), true, _style, _keySize);
+            // The smooth font can only tell from the canvas that a name is too wide, the pixel font can tell up front.
+            return _smoothOverflows
+                || MixerTileRenderer.Scrolls(NameOf(session, _identity.Resolve(session.ExecutablePath)), true, _style, _keySize);
         }
         return false;
     }

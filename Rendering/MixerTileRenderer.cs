@@ -51,8 +51,8 @@ internal sealed partial class MixerTileRenderer
     private const uint GlyphColor = 0xFF8A939C;
     private const uint BadgeColor = 0xFFD9DEE3;
 
-    /// <summary>Fixed part of the marquee: 1 s at 50 ms per frame before the name starts to move.</summary>
-    internal const int MarqueeHoldFrames = 20;
+    /// <summary>Frames the name rests at its start before it moves. 0: it runs at a constant speed without pausing.</summary>
+    internal const int MarqueeHoldFrames = 0;
 
     private const int Glyph = BitmapFont5x7.GlyphHeight;
 
@@ -127,6 +127,20 @@ internal sealed partial class MixerTileRenderer
         }
     }
 
+    /// <summary>
+    /// Draws a whole tile onto the host canvas: the picture through <c>DrawPixels</c>, then the smooth-font text on
+    /// top of it. Returns whether the selected tile's name is scrolling, so the caller knows it has to keep
+    /// redrawing. Held under one lock so the text is placed against the picture it belongs to.
+    /// </summary>
+    public bool Draw(IRenderCanvas canvas, MixerTileData tile, MixerTileStyle style, int size)
+    {
+        lock (_gate)
+        {
+            Render(tile, style, size, (pixels, edge) => canvas.DrawPixels(pixels, edge, edge));
+            return DrawSmoothText(canvas, tile, style, size);
+        }
+    }
+
     /// <summary>The tile as a PNG at the design size, for a host that cannot take pixels directly.</summary>
     public byte[] RenderPng(MixerTileData tile, MixerTileStyle style)
     {
@@ -146,11 +160,12 @@ internal sealed partial class MixerTileRenderer
     /// <summary>
     /// The smooth font: draws the percentage and the name on the host canvas, in the host's anti-aliased font,
     /// at the positions the pixel font uses, after the picture has been put on it. Does nothing when the picture
-    /// carries the text itself. The canvas must be the one <see cref="Render"/> just drew onto.
+    /// carries the text itself. The canvas must be the one <see cref="Render"/> just drew onto. Returns true when
+    /// the name is wider than the tile and the selected tile therefore scrolls it.
     /// </summary>
-    public void DrawSmoothText(IRenderCanvas canvas, MixerTileData tile, MixerTileStyle style, int size)
+    private bool DrawSmoothText(IRenderCanvas canvas, MixerTileData tile, MixerTileStyle style, int size)
     {
-        if (UsesPixelFont(tile, style)) return;
+        if (UsesPixelFont(tile, style)) return false;
 
         Box box = new(size);
         MixerTileLayout layout = style.Layout;
@@ -180,7 +195,7 @@ internal sealed partial class MixerTileRenderer
                 // 14 px apart in the design, the host font being taller than the bitmap font's 9 px pitch.
                 Line(lines[i], box.Left, box.At(i == 0 ? 54 : 68), box.Width, nameSize,
                     TextHAlign.Left, nameColor, bold: tile.Selected);
-            return;
+            return false;
         }
 
         (int designScale, int designName, double designFont) = layout switch
@@ -200,8 +215,62 @@ internal sealed partial class MixerTileRenderer
         if (tile.Muted)
             canvas.FillRectangle(box.Centre(percentWidth) - 1, centerY, percentWidth + 2, 2, ToColor(StrikeColor));
 
-        Line(TruncateToFit(canvas, name, nameSize, box.Width), box.Left,
-            box.TextTop(designName, 1, 1) + 4, box.Width, nameSize, TextHAlign.Center, nameColor, bold: tile.Selected);
+        int nameCenter = box.TextTop(designName, 1, 1) + 4;
+        float nameWidth = canvas.MeasureText(name, nameSize, bold: tile.Selected);
+
+        // The selected tile scrolls a name that does not fit; every other tile cuts it with an ellipsis.
+        if (tile.Selected && nameWidth > box.Width)
+        {
+            DrawSmoothMarquee(canvas, name, (int)Math.Ceiling(nameWidth), nameCenter, nameSize, nameColor, tile, style, box);
+            return true;
+        }
+
+        Line(TruncateToFit(canvas, name, nameSize, box.Width, tile.Selected), box.Left,
+            nameCenter, box.Width, nameSize, TextHAlign.Center, nameColor, bold: tile.Selected);
+        return false;
+    }
+
+    /// <summary>
+    /// The name running left at a constant speed and coming back in from the right: the name and a gap, drawn
+    /// twice so the seam is closed. The canvas has no clip, so the text is drawn wider than its window and the
+    /// margins are then put back from the tile's own pixels; a transparent tile has nothing to put back and lets
+    /// the text run over its margins to the key's edge.
+    /// </summary>
+    private void DrawSmoothMarquee(IRenderCanvas canvas, string name, int textWidth, int centerY, float fontSize,
+        PluginColor color, MixerTileData tile, MixerTileStyle style, Box box)
+    {
+        int gap = Math.Max(12, (int)Math.Round(fontSize * 1.2));
+        int period = textWidth + gap;
+        int offset = tile.MarqueeFrame % period;
+        int height = (int)Math.Ceiling(fontSize * 1.5);
+        int top = centerY - (height / 2);
+
+        for (int copy = 0; copy < 2; copy++)
+        {
+            canvas.DrawText(name, box.Left - offset + (copy * period), top, textWidth + 8, height, color, fontSize,
+                TextHAlign.Left, TextVAlign.Middle, bold: tile.Selected, italic: false, outlined: style.Outlined,
+                outlineColor: ToColor(OutlineColor));
+        }
+
+        if (style.Transparent) return;
+
+        int y0 = Math.Max(0, top);
+        int rows = Math.Min(_surface.Size, top + height) - y0;
+        RestoreStrip(canvas, 0, y0, box.Left, rows);
+        RestoreStrip(canvas, box.Right, y0, _surface.Size - box.Right, rows);
+    }
+
+    /// <summary>Puts a strip of the tile's own picture back on the canvas, over whatever was drawn there since.</summary>
+    private void RestoreStrip(IRenderCanvas canvas, int x, int y, int width, int height)
+    {
+        if (width <= 0 || height <= 0) return;
+
+        uint[] strip = new uint[width * height];
+        ReadOnlySpan<uint> pixels = _surface.Pixels;
+        for (int row = 0; row < height; row++)
+            pixels.Slice(((y + row) * _surface.Size) + x, width).CopyTo(strip.AsSpan(row * width, width));
+
+        canvas.DrawPixels(strip, width, height, x, y);
     }
 
     /// <summary>One line of host text, vertically centred on <paramref name="centerY"/>.</summary>
@@ -214,12 +283,12 @@ internal sealed partial class MixerTileRenderer
     }
 
     /// <summary>The name cut to fit <paramref name="room"/> pixels in the host font, with an ellipsis.</summary>
-    private static string TruncateToFit(IRenderCanvas canvas, string name, float fontSize, int room)
+    private static string TruncateToFit(IRenderCanvas canvas, string name, float fontSize, int room, bool bold = false)
     {
-        if (canvas.MeasureText(name, fontSize) <= room) return name;
+        if (canvas.MeasureText(name, fontSize, bold) <= room) return name;
 
         string cut = name;
-        while (cut.Length > 1 && canvas.MeasureText(cut.TrimEnd() + BitmapFont5x7.Ellipsis, fontSize) > room)
+        while (cut.Length > 1 && canvas.MeasureText(cut.TrimEnd() + BitmapFont5x7.Ellipsis, fontSize, bold) > room)
             cut = cut[..^1];
         return cut.TrimEnd() + BitmapFont5x7.Ellipsis;
     }
