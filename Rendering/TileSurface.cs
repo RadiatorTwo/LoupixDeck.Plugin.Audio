@@ -1,22 +1,16 @@
 namespace LoupixDeck.Plugin.Audio.Rendering;
 
 /// <summary>
-/// A square ARGB framebuffer a mixer tile is drawn into, the size of the key it ends up on.
-/// Drawing uses the coordinates of the 90 x 90 reference design, whose 72 x 72 content area is
-/// centred in whatever size the surface has: on a key calibrated to 74 px the design's outer margin
-/// is simply cropped, and nothing is ever scaled. Anything outside the surface is clipped. One
-/// surface is reused for every tile of a folder, so a redraw allocates nothing.
+/// A square ARGB framebuffer a mixer tile is drawn into, the size of the key it ends up on. Coordinates are
+/// pixels of that key, origin top-left, and anything outside is clipped. One surface is reused for every tile
+/// of a folder, so a redraw allocates nothing but the icon it scales.
 /// </summary>
 internal sealed class TileSurface
 {
-    /// <summary>Edge of the reference design.</summary>
+    /// <summary>Edge of the reference design, and of the picture sent to a host that cannot take pixels.</summary>
     public const int DesignSize = 90;
 
-    private const int ContentSize = 72;
-    private const int ContentLeft = 9;
-
     private readonly uint[] _pixels;
-    private readonly int _offset;
 
     private int _clipLeft;
     private int _clipTop;
@@ -27,25 +21,21 @@ internal sealed class TileSurface
     {
         Size = Math.Max(1, size);
         _pixels = new uint[Size * Size];
-        _offset = ((Size - ContentSize) / 2) - ContentLeft;
         ResetClip();
     }
 
     /// <summary>Edge of the surface in pixels.</summary>
     public int Size { get; }
 
-    /// <summary>Where design coordinate 0 lands on the surface; negative when the surface is smaller than the design.</summary>
-    public int Offset => _offset;
-
     public ReadOnlySpan<uint> Pixels => _pixels;
 
-    /// <summary>Restricts every following draw call to a rectangle in design coordinates, for the scrolling name.</summary>
+    /// <summary>Restricts every following draw call to a rectangle, for the scrolling name.</summary>
     public void SetClip(int x, int y, int width, int height)
     {
-        _clipLeft = Math.Max(0, x + _offset);
-        _clipTop = Math.Max(0, y + _offset);
-        _clipRight = Math.Min(Size, x + _offset + width);
-        _clipBottom = Math.Min(Size, y + _offset + height);
+        _clipLeft = Math.Max(0, x);
+        _clipTop = Math.Max(0, y);
+        _clipRight = Math.Min(Size, x + width);
+        _clipBottom = Math.Min(Size, y + height);
     }
 
     public void ResetClip()
@@ -56,30 +46,21 @@ internal sealed class TileSurface
         _clipBottom = Size;
     }
 
+    public void Clear(uint color) => Array.Fill(_pixels, color);
+
     /// <summary>A frame of <paramref name="thickness"/> px drawn <paramref name="inset"/> px inside the surface's edge.</summary>
     public void DrawFrame(int inset, int thickness, uint color)
     {
         int at = Math.Max(0, inset);
         int length = Size - (2 * at);
-        FillRaw(at, at, length, thickness, color);
-        FillRaw(at, Size - at - thickness, length, thickness, color);
-        FillRaw(at, at + thickness, thickness, length - (2 * thickness), color);
-        FillRaw(Size - at - thickness, at + thickness, thickness, length - (2 * thickness), color);
+        Fill(at, at, length, thickness, color);
+        Fill(at, Size - at - thickness, length, thickness, color);
+        Fill(at, at + thickness, thickness, length - (2 * thickness), color);
+        Fill(Size - at - thickness, at + thickness, thickness, length - (2 * thickness), color);
     }
 
-    /// <summary>Solid 0xAARRGGBB colour from an opaque 0xRRGGBB value.</summary>
-    public static uint Rgb(uint rgb) => 0xFF000000u | rgb;
-
-    public void Clear(uint color) => Array.Fill(_pixels, color);
-
-    /// <summary>Fills a rectangle given in design coordinates; a colour with alpha below 255 is blended over what is there.</summary>
-    public void Fill(int x, int y, int width, int height, uint color) =>
-        FillRaw(x + _offset, y + _offset, width, height, color);
-
-    /// <summary>Fills a rectangle given in surface pixels, for elements that are placed from the surface's own edge.</summary>
-    public void FillSurface(int x, int y, int width, int height, uint color) => FillRaw(x, y, width, height, color);
-
-    private void FillRaw(int x, int y, int width, int height, uint color)
+    /// <summary>Fills a rectangle; a colour with alpha below 255 is blended over what is there.</summary>
+    public void Fill(int x, int y, int width, int height, uint color)
     {
         int left = Math.Max(0, x);
         int top = Math.Max(0, y);
@@ -88,13 +69,11 @@ internal sealed class TileSurface
 
         for (int row = top; row < bottom; row++)
             for (int col = left; col < right; col++)
-                BlendRaw(col, row, color);
+                Blend(col, row, color);
     }
 
-    /// <summary>Blends one pixel given in design coordinates with straight alpha over the current content.</summary>
-    public void Blend(int x, int y, uint color) => BlendRaw(x + _offset, y + _offset, color);
-
-    private void BlendRaw(int x, int y, uint color)
+    /// <summary>Blends one pixel with straight alpha over the current content.</summary>
+    public void Blend(int x, int y, uint color)
     {
         if (x < _clipLeft || x >= _clipRight || y < _clipTop || y >= _clipBottom) return;
 
@@ -184,30 +163,57 @@ internal sealed class TileSurface
     /// <summary>
     /// Draws an icon scaled to <paramref name="size"/> with its top-left at (x, y). The source is
     /// straight-alpha 0xAARRGGBB; <paramref name="opacity"/> scales its alpha and
-    /// <paramref name="grey"/> replaces the colour by its luma (the muted look).
+    /// <paramref name="grey"/> replaces the colour by its luma (the muted look). A destination pixel takes
+    /// the alpha-weighted average of the source pixels it covers, so a fractional scale stays smooth
+    /// instead of dropping or doubling rows.
     /// </summary>
     public void DrawIcon(ReadOnlySpan<uint> source, int sourceSize, int x, int y, int size, float opacity,
         bool grey)
     {
+        float step = (float)sourceSize / size;
+
         for (int dy = 0; dy < size; dy++)
         {
-            int sy = Math.Min(sourceSize - 1, (dy * sourceSize) / size);
+            float sy0 = dy * step;
+            float sy1 = sy0 + step;
             for (int dx = 0; dx < size; dx++)
             {
-                int sx = Math.Min(sourceSize - 1, (dx * sourceSize) / size);
-                uint p = source[(sy * sourceSize) + sx];
-                uint alpha = (uint)MathF.Round((p >> 24) * opacity);
-                if (alpha == 0) continue;
+                float sx0 = dx * step;
+                float sx1 = sx0 + step;
 
-                uint rgb = p & 0x00FFFFFFu;
-                if (grey)
+                float weight = 0, a = 0, r = 0, g = 0, b = 0;
+                for (int sy = (int)sy0; sy < Math.Min(sourceSize, (int)MathF.Ceiling(sy1)); sy++)
                 {
-                    uint luma = (uint)MathF.Round(
-                        (0.299f * ((p >> 16) & 0xFF)) + (0.587f * ((p >> 8) & 0xFF)) + (0.114f * (p & 0xFF)));
-                    rgb = (luma << 16) | (luma << 8) | luma;
+                    float wy = MathF.Min(sy + 1, sy1) - MathF.Max(sy, sy0);
+                    for (int sx = (int)sx0; sx < Math.Min(sourceSize, (int)MathF.Ceiling(sx1)); sx++)
+                    {
+                        float w = wy * (MathF.Min(sx + 1, sx1) - MathF.Max(sx, sx0));
+                        uint p = source[(sy * sourceSize) + sx];
+                        float pa = p >> 24;
+                        weight += w;
+                        a += pa * w;
+                        // Colour is weighted by alpha so a transparent neighbour does not darken the edge.
+                        r += ((p >> 16) & 0xFF) * pa * w;
+                        g += ((p >> 8) & 0xFF) * pa * w;
+                        b += (p & 0xFF) * pa * w;
+                    }
                 }
 
-                Blend(x + dx, y + dy, rgb | (alpha << 24));
+                if (weight <= 0 || a <= 0) continue;
+
+                float alpha = a / weight;
+                float cr = r / a, cg = g / a, cb = b / a;
+                if (grey)
+                {
+                    float luma = (0.299f * cr) + (0.587f * cg) + (0.114f * cb);
+                    cr = cg = cb = luma;
+                }
+
+                uint outAlpha = (uint)MathF.Round(alpha * opacity);
+                if (outAlpha == 0) continue;
+
+                Blend(x + dx, y + dy,
+                    (outAlpha << 24) | ((uint)MathF.Round(cr) << 16) | ((uint)MathF.Round(cg) << 8) | (uint)MathF.Round(cb));
             }
         }
     }

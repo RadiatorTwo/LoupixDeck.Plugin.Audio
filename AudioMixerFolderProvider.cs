@@ -42,6 +42,10 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private Timer? _refresh;
     private Timer? _marquee;
     private int _marqueeFrame;
+
+    // The key size is only known once the host draws a slot; until then the design's 90 px is assumed. It decides
+    // whether a name still fits and so whether the marquee has to run.
+    private volatile int _keySize = TileSurface.DesignSize;
     private string? _marqueeApp;
 
     internal AudioMixerFolderProvider(IAudioService audio, AudioFolderGrid grid, IPluginHost host,
@@ -101,7 +105,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
             string name = NameOf(captured, identity);
 
             // Only the selected tile with an overlong name moves; every other tile keeps one picture.
-            int frame = selected && MixerTileRenderer.Scrolls(name, selected, _style) ? _marqueeFrame : 0;
+            int frame = selected && MixerTileRenderer.Scrolls(name, selected, _style, _keySize) ? _marqueeFrame : 0;
             MixerTileData data = new(name, percent, captured.Muted, selected, identity.Icon, identity.IconSize, frame);
 
             SlotSpec spec = new(
@@ -164,8 +168,12 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         TextColor = spec.TextColor,
         BackColor = PluginColor.FromRgb(0x0A, 0x0B, 0x0D),
         OnPress = spec.OnPress,
-        Render = canvas => _renderer.Render(data, _style, Math.Min(canvas.Width, canvas.Height),
-            (pixels, size) => canvas.DrawPixels(pixels, size, size))
+        Render = canvas =>
+        {
+            int size = Math.Min(canvas.Width, canvas.Height);
+            _keySize = size;
+            _renderer.Render(data, _style, size, (pixels, edge) => canvas.DrawPixels(pixels, edge, edge));
+        }
     };
 
     /// <summary>The same slot as a 90 x 90 PNG, for a host without <c>FolderEntry.Render</c>.</summary>
@@ -203,7 +211,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         foreach (AudioSessionInfo session in _sessions)
         {
             if (!string.Equals(session.AppId, _selectedAppId, StringComparison.Ordinal)) continue;
-            return MixerTileRenderer.Scrolls(NameOf(session, _identity.Resolve(session.ExecutablePath)), true, _style);
+            return MixerTileRenderer.Scrolls(NameOf(session, _identity.Resolve(session.ExecutablePath)), true, _style, _keySize);
         }
         return false;
     }
@@ -281,7 +289,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private string DescribeEntries()
     {
         StringBuilder builder = new();
-        builder.Append(_selectedAppId).Append('|');
+        builder.Append(_selectedAppId).Append('|').Append(_keySize).Append('|');
 
         foreach (AudioSessionInfo session in _sessions)
         {

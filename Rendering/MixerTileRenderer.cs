@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace LoupixDeck.Plugin.Audio.Rendering;
@@ -21,10 +22,15 @@ internal readonly record struct MixerTileData(
 internal delegate void TilePixelSink(ReadOnlySpan<uint> pixels, int size);
 
 /// <summary>
-/// Draws the redesigned per-application mixer tile, following the Claude Design spec: a tile with a 72 x 72
-/// safe area, four layouts, and text either in a 5x7 bitmap font (drawn here, exact on the panel's pixel
-/// grid) or in the host's anti-aliased font (drawn by the host over the picture). The tile is drawn at the
-/// size of the key it is for, so nothing is scaled on its way to the panel.
+/// Draws the redesigned per-application mixer tile, following the Claude Design spec: four layouts, and text
+/// either in a 5x7 bitmap font (drawn here, exact on the panel's pixel grid) or in the host's anti-aliased font
+/// (drawn by the host over the picture).
+///
+/// <para>The tile is drawn at the size of the key it is for, and the whole layout is derived from that size: the
+/// content sits in a box inside the selection frame whose margin is a tenth of the key, and every position and
+/// icon size is the spec's 90 px coordinate scaled to that box. On a 90 px key the box is 72 px and the result is
+/// the spec exactly. Text keeps whole-pixel scales, so what shrinks with the key is the room around it: the
+/// number of characters a name line holds, and the scale of the percentage when it would not fit.</para>
 /// </summary>
 internal sealed partial class MixerTileRenderer
 {
@@ -40,11 +46,10 @@ internal sealed partial class MixerTileRenderer
     private const uint GlyphColor = 0xFF8A939C;
     private const uint BadgeColor = 0xFFD9DEE3;
 
-    /// <summary>Characters of a name that fit the 72 px line at 6 px per glyph.</summary>
-    internal const int PixelNameChars = 12;
-
     /// <summary>Fixed part of the marquee: 1 s at 50 ms per frame before the name starts to move.</summary>
     internal const int MarqueeHoldFrames = 20;
+
+    private const int Glyph = BitmapFont5x7.GlyphHeight;
 
     // Speaker with a cross, 11 x 7, drawn inside the 15 x 11 mute badge at (+2, +2).
     private static readonly string[] MuteBitmap =
@@ -68,23 +73,24 @@ internal sealed partial class MixerTileRenderer
     public static string NormalizeName(string name) =>
         Whitespace.Replace(TrailingParentheses.Replace(name, string.Empty), " ").Trim();
 
+    /// <summary>Width of the content box of a key of this size: the key minus a margin of a tenth on each side.</summary>
+    internal static int ContentWidth(int keySize) => keySize - (2 * Margin(keySize));
+
+    /// <summary>Characters a name line of the pixel font holds on a key of this size (12 on a 90 px key).</summary>
+    internal static int NameChars(int keySize) => (ContentWidth(keySize) + 1) / BitmapFont5x7.Advance;
+
+    private static int Margin(int keySize) => (int)Math.Round(keySize * 0.1);
+
     /// <summary>
     /// Whether the name of this tile scrolls: only in the pixel font, only for a selected tile, only when it
     /// does not fit. The caller uses this to decide whether the tile needs the fast timer.
     /// </summary>
-    public static bool Scrolls(string name, bool selected, MixerTileStyle style)
+    public static bool Scrolls(string name, bool selected, MixerTileStyle style, int keySize)
     {
         if (!selected || style.Font != MixerTileFont.Pixel || style.Layout == MixerTileLayout.Left) return false;
 
         string prepared = BitmapFont5x7.Prepare(NormalizeName(name));
-        return BitmapFont5x7.CanRender(prepared) && prepared.Length > PixelNameChars;
-    }
-
-    /// <summary>Frames after which the marquee is back at its start, for the caller's frame counter.</summary>
-    public static int MarqueePeriodFrames(string name)
-    {
-        int n = BitmapFont5x7.Prepare(NormalizeName(name)).Length;
-        return (6 * (n + 3)) + MarqueeHoldFrames;
+        return BitmapFont5x7.CanRender(prepared) && BitmapFont5x7.Measure(prepared) > ContentWidth(keySize);
     }
 
     /// <summary>
@@ -97,12 +103,14 @@ internal sealed partial class MixerTileRenderer
         {
             if (_surface.Size != size) _surface = new TileSurface(size);
 
-            string name = NormalizeName(tile.Name);
-            string prepared = BitmapFont5x7.Prepare(name);
+            Box box = new(size);
+            string prepared = BitmapFont5x7.Prepare(NormalizeName(tile.Name));
 
-            DrawFrame(tile, style.Layout);
-            if (UsesPixelFont(tile, style)) DrawPixelText(tile, style.Layout, prepared);
-            DrawBadgeAndSelection(tile, style.Layout);
+            DrawBackdrop(tile, box);
+            DrawIndicator(tile, style.Layout, box);
+            DrawIcon(tile, style.Layout, box);
+            if (UsesPixelFont(tile, style)) DrawPixelText(tile, style.Layout, prepared, box);
+            DrawBadge(tile, style.Layout, box);
 
             _surface.ResetClip();
             sink(_surface.Pixels, _surface.Size);
@@ -129,10 +137,55 @@ internal sealed partial class MixerTileRenderer
     public static string HostText(MixerTileData tile, MixerTileStyle style) =>
         UsesPixelFont(tile, style) ? string.Empty : HostText(tile, style.Layout, NormalizeName(tile.Name));
 
-    private void DrawFrame(MixerTileData tile, MixerTileLayout layout)
+    /// <summary>
+    /// The key split into the selection frame's ring and the content box inside it. Every layout position is a
+    /// coordinate of the 90 px design (content box 9..81) mapped into <see cref="Left"/>..<see cref="Right"/>.
+    /// </summary>
+    private readonly struct Box
     {
-        TileLayout l = TileLayout.For(layout);
-        EdgeMetrics edge = EdgeMetrics.For(_surface.Size);
+        public Box(int size)
+        {
+            Size = size;
+            Margin = MixerTileRenderer.Margin(size);
+            Width = size - (2 * Margin);
+            Scale = Width / 72.0;
+            FrameInset = Math.Max(2, (int)Math.Round(size * 0.045));
+            FrameThickness = Math.Max(1, (int)Math.Round(size / 45.0));
+        }
+
+        public int Size { get; }
+        public int Margin { get; }
+        public int Width { get; }
+        public double Scale { get; }
+        public int FrameInset { get; }
+        public int FrameThickness { get; }
+
+        public int Left => Margin;
+        public int Right => Margin + Width;
+        public int Bottom => Right;
+
+        /// <summary>Design x or y (9 = content edge) as a position on the key.</summary>
+        public int At(int design) => Margin + (int)Math.Round((design - 9) * Scale);
+
+        /// <summary>A length of the design as a length on the key, never below <paramref name="min"/>.</summary>
+        public int Len(double design, int min = 1) => Math.Max(min, (int)Math.Round(design * Scale));
+
+        /// <summary>The design's icon edge on this key; rounded down so it never grows past its room.</summary>
+        public int IconEdge(int design) => Math.Max(8, (int)Math.Floor(design * Scale));
+
+        /// <summary>Left edge of something <paramref name="width"/> wide, centred in the content box.</summary>
+        public int Centre(int width) => Left + ((Width - width) / 2);
+
+        /// <summary>
+        /// Top of a text line whose bottom sits where the design's line does. Text does not shrink, so its
+        /// bottom is what stays in place, and the gap above it takes up the difference.
+        /// </summary>
+        public int TextTop(int designTop, int designScale, int scale) =>
+            At(designTop + (Glyph * designScale)) - (Glyph * scale);
+    }
+
+    private void DrawBackdrop(MixerTileData tile, Box box)
+    {
         _surface.ResetClip();
         _surface.Clear(tile.Selected ? BackgroundSelected : Background);
 
@@ -140,45 +193,70 @@ internal sealed partial class MixerTileRenderer
         // edge: the key cap and the viewing angle hide the outermost pixels, and a frame at the very edge
         // reads as cut off.
         if (tile.Selected)
-            _surface.DrawFrame(edge.FrameInset, edge.FrameThickness, Accent);
+            _surface.DrawFrame(box.FrameInset, box.FrameThickness, Accent);
+    }
 
-        float opacity = tile.Muted ? l.MutedIconOpacity : l.IconOpacity;
-        if (tile.Icon != null)
-        {
-            _surface.DrawIcon(tile.Icon, tile.IconSize, l.IconX, l.IconY, l.IconSize, opacity, grey: tile.Muted);
-        }
-        else
-        {
-            DrawFallbackGlyph(l, tile.Muted, opacity);
-        }
-
+    /// <summary>The level: a bar along the bottom of the content box, or an arc around the icon.</summary>
+    private void DrawIndicator(MixerTileData tile, MixerTileLayout layout, Box box)
+    {
         uint fill = tile.Muted ? MutedFill : Accent;
-        if (l.Arc)
+
+        if (layout == MixerTileLayout.Arc)
         {
             const float StartDegrees = 135f;
             const float Sweep = 270f;
-            _surface.DrawArc(45, 42, 31, 3, StartDegrees, Sweep, Track);
+            float cx = box.Left + (box.Width / 2f);
+            float cy = box.At(42);
+            float radius = (float)(31 * box.Scale);
+            float thickness = Math.Max(2, (float)(3 * box.Scale));
+
+            _surface.DrawArc(cx, cy, radius, thickness, StartDegrees, Sweep, Track);
             if (tile.Percent > 0)
-                _surface.DrawArc(45, 42, 31, 3, StartDegrees, Sweep * tile.Percent / 100f, fill);
+                _surface.DrawArc(cx, cy, radius, thickness, StartDegrees, Sweep * tile.Percent / 100f, fill);
+            return;
         }
-        else
-        {
-            // Placed from the key's own bottom edge, above the selection frame, so it keeps its distance
-            // to the edge whatever the key size is set to.
-            int barY = _surface.Size - edge.BarBottomGap - edge.BarHeight;
-            int barX = 9 + _surface.Offset;
-            _surface.FillSurface(barX, barY, 72, edge.BarHeight, Track);
-            _surface.FillSurface(barX, barY, (int)Math.Round(72 * tile.Percent / 100.0), edge.BarHeight, fill);
-        }
+
+        int height = box.Len(4, 2);
+        int y = box.Bottom - height;
+        _surface.Fill(box.Left, y, box.Width, height, Track);
+        _surface.Fill(box.Left, y, (int)Math.Round(box.Width * tile.Percent / 100.0), height, fill);
     }
 
-    /// <summary>The speaker shown when an application has no icon: a 32 x 32 bitmap, scaled by whole multiples.</summary>
-    private void DrawFallbackGlyph(TileLayout l, bool muted, float opacity)
+    private void DrawIcon(MixerTileData tile, MixerTileLayout layout, Box box)
     {
-        uint[] glyph = SpeakerGlyph(muted);
-        int scale = Math.Max(1, l.IconSize / 32);
-        int offset = (l.IconSize - (32 * scale)) / 2;
-        _surface.DrawIcon(glyph, 32, l.IconX + offset, l.IconY + offset, 32 * scale, opacity, grey: false);
+        (int edge, int x, int y, float opacity, float mutedOpacity) = layout switch
+        {
+            MixerTileLayout.Left => IconSlot(box, 32, box.Left, box.At(9), 1f, 0.35f),
+            MixerTileLayout.Background => IconSlot(box, 64, null, box.At(5), 0.3f, 0.12f),
+            MixerTileLayout.Arc => IconSlot(box, 40, null, box.At(22), 0.3f, 0.12f),
+            _ => IconSlot(box, 32, null, box.At(9), 1f, 0.35f)
+        };
+
+        // Above the level the icon may only take what the number leaves it: the number keeps its size while the
+        // key shrinks, so on a small key the icon is what gives way.
+        if (layout == MixerTileLayout.Top)
+        {
+            int percentTop = PercentTop(tile, layout, box);
+            int room = percentTop - 2 - y;
+            if (room < edge)
+            {
+                edge = Math.Max(8, room);
+                x = box.Centre(edge);
+            }
+        }
+
+        float alpha = tile.Muted ? mutedOpacity : opacity;
+        if (tile.Icon != null)
+            _surface.DrawIcon(tile.Icon, tile.IconSize, x, y, edge, alpha, grey: tile.Muted);
+        else
+            _surface.DrawIcon(SpeakerGlyph(tile.Muted), 32, x, y, edge, alpha, grey: false);
+    }
+
+    private static (int Edge, int X, int Y, float Opacity, float MutedOpacity) IconSlot(
+        Box box, int designEdge, int? x, int y, float opacity, float mutedOpacity)
+    {
+        int edge = box.IconEdge(designEdge);
+        return (edge, x ?? box.Centre(edge), y, opacity, mutedOpacity);
     }
 
     private static uint[] SpeakerGlyph(bool muted)
@@ -220,73 +298,111 @@ internal sealed partial class MixerTileRenderer
         return pixels;
     }
 
-    private void DrawPixelText(MixerTileData tile, MixerTileLayout layout, string name)
+    private void DrawPixelText(MixerTileData tile, MixerTileLayout layout, string name, Box box)
     {
-        TileLayout l = TileLayout.For(layout);
         uint percentColor = tile.Muted ? MutedColor : TextColor;
         uint nameColor = tile.Muted ? MutedColor : tile.Selected ? TextColor : NameColor;
-        string number = tile.Percent.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        string number = tile.Percent.ToString(CultureInfo.InvariantCulture);
 
         if (layout == MixerTileLayout.Left)
         {
-            int w = BitmapFont5x7.Measure(number, 2);
-            int x = 81 - w;
-            _surface.DrawText(number, x, 13, 2, percentColor);
-            _surface.DrawText("%", 76, 30, 1, percentColor);
-            if (tile.Muted) _surface.Fill(x - 2, 19, w + 4, 2, StrikeColor);
+            // The number takes what the icon leaves of the row, and drops a scale before it would touch it.
+            int room = box.Width - box.IconEdge(32) - 2;
+            int scale = FitScale(number, 2, room);
+            int w = BitmapFont5x7.Measure(number, scale);
+            int x = box.Right - w;
+            int top = box.At(13);
+            _surface.DrawText(number, x, top, scale, percentColor);
+            _surface.DrawText("%", box.Right - BitmapFont5x7.GlyphWidth, top + (Glyph * scale) + 2, 1, percentColor);
+            if (tile.Muted)
+                _surface.Fill(x - scale, top + (3 * scale), w + (2 * scale), scale, StrikeColor);
 
-            List<string> lines = WrapTwoLines(name);
+            List<string> lines = WrapTwoLines(name, box.Width);
             for (int i = 0; i < lines.Count; i++)
-                _surface.DrawText(lines[i], 9, i == 0 ? 51 : 60, 1, nameColor);
+                _surface.DrawText(lines[i], box.Left, box.TextTop(i == 0 ? 51 : 60, 1, 1), 1, nameColor);
             return;
         }
 
-        string percent = number + "%";
-        int pw = BitmapFont5x7.Measure(percent, l.PercentScale);
-        int px = 9 + ((72 - pw) / 2);
-        _surface.DrawText(percent, px, l.PercentY, l.PercentScale, percentColor);
-        if (tile.Muted)
-            _surface.Fill(px - l.PercentScale, l.PercentY + (3 * l.PercentScale), pw + (2 * l.PercentScale), l.PercentScale, StrikeColor);
+        (int designTop, int designScale, int designName) = layout switch
+        {
+            MixerTileLayout.Background => (28, 3, 60),
+            MixerTileLayout.Arc => (35, 2, 74),
+            _ => (45, 2, 64)
+        };
 
-        DrawNameLine(name, l.NameY, nameColor, tile);
+        string percent = number + "%";
+        int percentScale = FitScale(percent, designScale, box.Width);
+        int pw = BitmapFont5x7.Measure(percent, percentScale);
+        int px = box.Centre(pw);
+        int py = PercentTop(tile, layout, box);
+        _surface.DrawText(percent, px, py, percentScale, percentColor);
+        if (tile.Muted)
+            _surface.Fill(px - percentScale, py + (3 * percentScale), pw + (2 * percentScale), percentScale, StrikeColor);
+
+        DrawNameLine(name, box.TextTop(designName, 1, 1), nameColor, tile, box);
     }
 
-    private void DrawNameLine(string name, int y, uint color, MixerTileData tile)
+    /// <summary>Top of the percentage line of the layouts that centre it, from the design's position and the scale that fits.</summary>
+    private static int PercentTop(MixerTileData tile, MixerTileLayout layout, Box box)
+    {
+        (int designTop, int designScale) = layout switch
+        {
+            MixerTileLayout.Background => (28, 3),
+            MixerTileLayout.Arc => (35, 2),
+            _ => (45, 2)
+        };
+
+        string percent = tile.Percent.ToString(CultureInfo.InvariantCulture) + "%";
+        return box.TextTop(designTop, designScale, FitScale(percent, designScale, box.Width));
+    }
+
+    /// <summary>The largest whole scale up to <paramref name="wanted"/> at which <paramref name="text"/> fits <paramref name="room"/>.</summary>
+    private static int FitScale(string text, int wanted, int room)
+    {
+        int scale = wanted;
+        while (scale > 1 && BitmapFont5x7.Measure(text, scale) > room) scale--;
+        return scale;
+    }
+
+    private void DrawNameLine(string name, int y, uint color, MixerTileData tile, Box box)
     {
         int width = BitmapFont5x7.Measure(name);
-        if (width <= 72)
+        if (width <= box.Width)
         {
-            _surface.DrawText(name, 9 + ((72 - width) / 2), y, 1, color);
+            _surface.DrawText(name, box.Centre(width), y, 1, color);
             return;
         }
 
         if (!tile.Selected)
         {
-            string cut = TruncatePixel(name);
-            _surface.DrawText(cut, 9 + ((72 - BitmapFont5x7.Measure(cut)) / 2), y, 1, color);
+            string cut = TruncatePixel(name, box.Width);
+            _surface.DrawText(cut, box.Centre(BitmapFont5x7.Measure(cut)), y, 1, color);
             return;
         }
 
         // Selected and overlong: scroll. The loop is the name plus three spaces, drawn twice so the seam is
         // seamless; the first 20 frames hold the start, then it moves 1 px per frame.
-        int period = width + 19;
+        int period = width + (3 * BitmapFont5x7.Advance) + 1;
         int frame = tile.MarqueeFrame % (period + MarqueeHoldFrames);
         int offset = Math.Max(0, frame - MarqueeHoldFrames);
 
-        _surface.SetClip(9, y - 1, 72, 9);
-        _surface.DrawText(name, 9 - offset, y, 1, color);
-        _surface.DrawText(name, 9 - offset + period, y, 1, color);
+        _surface.SetClip(box.Left, y - 1, box.Width, Glyph + 2);
+        _surface.DrawText(name, box.Left - offset, y, 1, color);
+        _surface.DrawText(name, box.Left - offset + period, y, 1, color);
         _surface.ResetClip();
     }
 
-    /// <summary>First 11 characters and an ellipsis, so a cut name never ends mid-glyph.</summary>
-    internal static string TruncatePixel(string name) =>
-        name.Length > PixelNameChars ? name[..(PixelNameChars - 1)].TrimEnd() + BitmapFont5x7.Ellipsis : name;
-
-    /// <summary>Breaks a name over two 12-character lines at a space or after a hyphen, cutting the second line if needed.</summary>
-    internal static List<string> WrapTwoLines(string name)
+    /// <summary>The name cut to fit <paramref name="room"/> pixels, with an ellipsis, so a cut name never ends mid-glyph.</summary>
+    internal static string TruncatePixel(string name, int room)
     {
-        static bool Fits(string s) => BitmapFont5x7.Measure(s) <= 72;
+        int chars = Math.Max(2, (room + 1) / BitmapFont5x7.Advance);
+        return name.Length > chars ? name[..(chars - 1)].TrimEnd() + BitmapFont5x7.Ellipsis : name;
+    }
+
+    /// <summary>Breaks a name over two lines of <paramref name="room"/> pixels at a space or after a hyphen, cutting the second line if needed.</summary>
+    internal static List<string> WrapTwoLines(string name, int room)
+    {
+        bool Fits(string s) => BitmapFont5x7.Measure(s) <= room;
 
         List<string> lines = [];
         string current = string.Empty;
@@ -344,23 +460,30 @@ internal sealed partial class MixerTileRenderer
         if (current.Length > 0) lines.Add(current);
         if (lines.Count <= 2) return lines;
 
-        return [lines[0], TruncatePixel(string.Join(' ', lines.Skip(1)))];
+        return [lines[0], TruncatePixel(string.Join(' ', lines.Skip(1)), room)];
     }
 
-    private void DrawBadgeAndSelection(MixerTileData tile, MixerTileLayout layout)
+    private void DrawBadge(MixerTileData tile, MixerTileLayout layout, Box box)
     {
         _surface.ResetClip();
+        if (!tile.Muted || tile.Icon == null) return;
 
-        if (tile.Muted && tile.Icon != null)
+        (int designX, int designY) = layout switch
         {
-            TileLayout l = TileLayout.For(layout);
-            _surface.Fill(l.BadgeX, l.BadgeY, 15, 11, Background);
-            for (int r = 0; r < MuteBitmap.Length; r++)
-                for (int c = 0; c < MuteBitmap[r].Length; c++)
-                    if (MuteBitmap[r][c] == '1')
-                        _surface.Fill(l.BadgeX + 2 + c, l.BadgeY + 2 + r, 1, 1, BadgeColor);
-        }
+            MixerTileLayout.Left => (28, 31),
+            MixerTileLayout.Background => (66, 9),
+            MixerTileLayout.Arc => (38, 55),
+            _ => (48, 31)
+        };
 
+        // 15 x 11 like the design, kept inside the content box.
+        int bx = Math.Min(box.At(designX), box.Right - 15);
+        int by = Math.Min(box.At(designY), box.Bottom - 11);
+        _surface.Fill(bx, by, 15, 11, Background);
+        for (int r = 0; r < MuteBitmap.Length; r++)
+            for (int c = 0; c < MuteBitmap[r].Length; c++)
+                if (MuteBitmap[r][c] == '1')
+                    _surface.Fill(bx + 2 + c, by + 2 + r, 1, 1, BadgeColor);
     }
 
     /// <summary>
@@ -372,39 +495,7 @@ internal sealed partial class MixerTileRenderer
     {
         const int HostNameChars = 12;
         string shown = name.Length > HostNameChars ? name[..(HostNameChars - 1)].TrimEnd() + '…' : name;
-        string padding = string.Concat(Enumerable.Repeat(" \n", TileLayout.For(layout).HostPaddingLines));
-        return $"{padding}{tile.Percent} %\n{shown}";
-    }
-
-    /// <summary>
-    /// What sits near the key's edge, derived from the key size so it follows whatever the size is set to.
-    /// The proportions are those of the 90 px design (frame 4 px in, 2 px thick, bar 4 px tall and 3 px above
-    /// the frame) and never drop below a pixel or two, where a smaller key would otherwise lose them.
-    /// </summary>
-    private readonly record struct EdgeMetrics(int FrameInset, int FrameThickness, int BarHeight, int BarBottomGap)
-    {
-        public static EdgeMetrics For(int size)
-        {
-            int inset = Math.Max(2, (int)Math.Round(size * 0.045));
-            int thickness = Math.Max(1, (int)Math.Round(size / 45.0));
-            int barHeight = Math.Max(2, (int)Math.Round(size * 0.045));
-            // Frame, then a gap, then the bar: the gap is what keeps the bar from merging into a full frame.
-            int gap = inset + thickness + Math.Max(2, (int)Math.Round(size * 0.03));
-            return new EdgeMetrics(inset, thickness, barHeight, gap);
-        }
-    }
-
-    /// <summary>The coordinates of one layout, straight from the design spec.</summary>
-    private readonly record struct TileLayout(
-        int IconX, int IconY, int IconSize, float IconOpacity, float MutedIconOpacity,
-        int BadgeX, int BadgeY, int PercentScale, int PercentY, int NameY, bool Arc, int HostPaddingLines)
-    {
-        public static TileLayout For(MixerTileLayout layout) => layout switch
-        {
-            MixerTileLayout.Left => new TileLayout(9, 9, 32, 1f, 0.35f, 28, 31, 2, 13, 51, false, 2),
-            MixerTileLayout.Background => new TileLayout(13, 5, 64, 0.3f, 0.12f, 66, 9, 3, 28, 60, false, 2),
-            MixerTileLayout.Arc => new TileLayout(25, 22, 40, 0.3f, 0.12f, 38, 55, 2, 35, 74, true, 1),
-            _ => new TileLayout(29, 9, 32, 1f, 0.35f, 48, 31, 2, 45, 64, false, 2)
-        };
+        int padding = layout == MixerTileLayout.Arc ? 1 : 2;
+        return $"{string.Concat(Enumerable.Repeat(" \n", padding))}{tile.Percent} %\n{shown}";
     }
 }
