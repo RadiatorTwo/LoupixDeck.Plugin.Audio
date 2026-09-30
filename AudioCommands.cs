@@ -74,7 +74,7 @@ internal sealed class AudioMixerFolderCommand(IAudioService audio, AppIdentityCa
             },
             new CommandParameter("font", typeof(MixerTileFont))
             {
-                DefaultValue = nameof(MixerTileFont.Pixel)
+                DefaultValue = nameof(MixerTileFont.Smooth)
             }
         ]
     };

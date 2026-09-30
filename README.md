@@ -43,13 +43,12 @@ can look different:
 - `layout` — `Top` (icon above level and name, the default), `Left` (icon on the
   left, name over two lines), `Background` (faded icon behind a large level) or
   `Arc` (faded icon inside an arc that shows the level).
-- `font` — `Pixel` (the default) draws the text in a 5x7 bitmap font that sits
-  exactly on the panel's pixels: uppercase, 12 characters per line, and the name
-  of the selected tile scrolls when it is longer. `Smooth` lets LoupixDeck draw
-  the text in its anti-aliased font; that text is always centred below the icon,
-  and a long name is shortened instead of scrolling. A name the bitmap font
-  cannot spell (for example Chinese or Cyrillic) is drawn in the smooth font
-  automatically.
+- `font` — `Smooth` (the default) draws the text in LoupixDeck's anti-aliased font;
+  a long name is shortened instead of scrolling. `Pixel` draws it in a 5x7 bitmap
+  font that sits exactly on the panel's pixels: uppercase, 12 characters per line
+  on a 90 px key, and the name of the selected tile scrolls when it is longer. A
+  name the bitmap font cannot spell (for example Chinese or Cyrillic) is drawn in
+  the smooth font automatically.
 
 An assignment saved before these parameters existed uses the defaults.
 

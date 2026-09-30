@@ -22,11 +22,11 @@ public enum MixerTileLayout
 /// <summary>How the text on a mixer tile is drawn.</summary>
 public enum MixerTileFont
 {
-    /// <summary>5x7 bitmap font, exact on the panel's pixel grid.</summary>
-    Pixel,
+    /// <summary>Anti-aliased host font. The default, and listed first because the host offers the first value of an enum when nothing is chosen.</summary>
+    Smooth,
 
-    /// <summary>Anti-aliased host font.</summary>
-    Smooth
+    /// <summary>5x7 bitmap font, exact on the panel's pixel grid.</summary>
+    Pixel
 }
 
 /// <summary>
@@ -36,7 +36,7 @@ public enum MixerTileFont
 /// </summary>
 internal readonly record struct MixerTileStyle(MixerTileLayout Layout, MixerTileFont Font)
 {
-    public static MixerTileStyle Default { get; } = new(MixerTileLayout.Top, MixerTileFont.Pixel);
+    public static MixerTileStyle Default { get; } = new(MixerTileLayout.Top, MixerTileFont.Smooth);
 
     /// <summary>Reads layout and font from the command parameters, falling back to the default for anything missing or unknown.</summary>
     public static MixerTileStyle FromParameters(string[]? parameters)
