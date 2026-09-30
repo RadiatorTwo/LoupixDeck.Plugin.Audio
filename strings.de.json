@@ -89,5 +89,12 @@
   "Is Default": "Ist Standard",
   "Set Default": "Standard setzen",
   "No audio": "Kein Ton",
-  "No device": "Kein Gerät"
+  "No device": "Kein Gerät",
+
+  "pactl (pulseaudio-utils)": "pactl (pulseaudio-utils)",
+  "pactl is missing, so the Audio plugin has no commands.": "pactl fehlt, deshalb hat das Audio-Plugin keine Befehle.",
+  "Install the package pulseaudio-utils (Arch Linux: libpulse), then restart LoupixDeck.": "Das Paket pulseaudio-utils installieren (Arch Linux: libpulse) und LoupixDeck danach neu starten.",
+  "Sound player (paplay, mpv or ffplay)": "Sound-Player (paplay, mpv oder ffplay)",
+  "No sound player was found, so sounds cannot be played.": "Es wurde kein Sound-Player gefunden, deshalb können keine Sounds abgespielt werden.",
+  "Install pulseaudio-utils (paplay) or mpv. For mp3 and m4a files mpv, or ffmpeg together with paplay, is needed.": "pulseaudio-utils (paplay) oder mpv installieren. Für mp3- und m4a-Dateien wird mpv oder ffmpeg zusammen mit paplay benötigt."
 }

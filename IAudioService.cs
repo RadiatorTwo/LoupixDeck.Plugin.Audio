@@ -1,3 +1,5 @@
+using LoupixDeck.PluginSdk;
+
 namespace LoupixDeck.Plugin.Audio;
 
 public enum AudioEndpointKind { Render, Capture }
@@ -7,6 +9,14 @@ public sealed record AudioEndpointInfo(string Id, string FriendlyName, bool IsDe
 public interface IAudioService
 {
     bool IsSupported { get; }
+
+    /// <summary>
+    /// The system requirements of this backend and whether each is met right now (for example the
+    /// command line tools the Linux backend shells out to). Probes the system on every call, so a
+    /// tool installed while LoupixDeck is running reads as met on the next call. Empty when the
+    /// backend needs nothing beyond the operating system.
+    /// </summary>
+    IReadOnlyList<PluginRequirement> GetRequirements();
 
     IReadOnlyList<AudioEndpointInfo> GetEndpoints(AudioEndpointKind kind);
 

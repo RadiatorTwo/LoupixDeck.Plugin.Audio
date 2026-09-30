@@ -7,7 +7,7 @@ namespace LoupixDeck.Plugin.Audio;
 /// for picking an output/input device and adjusting its volume and mute state.
 /// Backed by WASAPI on Windows and pactl (PulseAudio / pipewire-pulse) on Linux.
 /// </summary>
-public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContributor
+public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContributor, IPluginRequirements
 {
     private readonly IAudioService _audio = CreateAudioService();
     private List<IPluginCommand> _commands = [];
@@ -40,13 +40,20 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
 
     public override void Initialize(IPluginHost host)
     {
-        if (!_audio.IsSupported) return;
+        // Kept before the early return: GetRequirements logs through it even when nothing else is set up.
+        _logger = host.Logger;
+
+        if (!_audio.IsSupported)
+        {
+            _logger.Warn("No supported audio backend was found, so the Audio plugin registers no commands. "
+                         + "See the plugin requirements.");
+            return;
+        }
 
         // The Windows backend logs its own COM failures, so it needs the host logger.
         if (_audio is WindowsAudioService windows) windows.Logger = host.Logger;
 
         _host = host;
-        _logger = host.Logger;
         _settings = host.Settings;
         _aliasStore = new AudioAliasStore(host.Settings);
         _soundLibrary = new SoundLibrary(host.Settings);
@@ -89,6 +96,32 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     }
 
     public override IEnumerable<IPluginCommand> GetCommands() => _commands;
+
+    // Requirements that were already logged as unmet, so the warning appears once per problem
+    // instead of on every check the host makes.
+    private readonly HashSet<string> _warnedRequirements = [];
+
+    public IReadOnlyList<PluginRequirement> GetRequirements()
+    {
+        IReadOnlyList<PluginRequirement> requirements = _audio.GetRequirements();
+
+        lock (_warnedRequirements)
+        {
+            foreach (PluginRequirement requirement in requirements)
+            {
+                if (requirement.IsMet)
+                {
+                    _warnedRequirements.Remove(requirement.Id);
+                    continue;
+                }
+
+                if (_warnedRequirements.Add(requirement.Id))
+                    _logger?.Warn($"Requirement '{requirement.Id}' is not met: {requirement.Message} {requirement.InstallHint}");
+            }
+        }
+
+        return requirements;
+    }
 
     public override IReadOnlyList<CommandGroupDescriptor> GetCommandGroups() =>
     [
@@ -689,6 +722,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
 internal sealed class UnsupportedAudioService : IAudioService
 {
     public bool IsSupported => false;
+    public IReadOnlyList<PluginRequirement> GetRequirements() => [];
     public IReadOnlyList<AudioEndpointInfo> GetEndpoints(AudioEndpointKind kind) => [];
     public string? GetDefaultEndpointId(AudioEndpointKind kind) => null;
     public float GetVolume(string endpointId) => 0f;

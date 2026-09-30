@@ -1,3 +1,4 @@
+using LoupixDeck.PluginSdk;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.RegularExpressions;
@@ -10,11 +11,11 @@ namespace LoupixDeck.Plugin.Audio;
 /// </summary>
 public sealed class LinuxAudioService : IAudioService
 {
-    private static readonly Lazy<bool> HasPactl = new(DetectPactl);
-    private static readonly Lazy<bool> HasPaplay = new(() => DetectTool("paplay", "--version"));
-    private static readonly Lazy<bool> HasFfplay = new(() => DetectTool("ffplay", "-version"));
-    private static readonly Lazy<bool> HasMpv = new(() => DetectTool("mpv", "--version"));
-    private static readonly Lazy<bool> HasFfmpeg = new(() => DetectTool("ffmpeg", "-version"));
+    private static readonly ToolProbe HasPactl = new("pactl", "--version");
+    private static readonly ToolProbe HasPaplay = new("paplay", "--version");
+    private static readonly ToolProbe HasFfplay = new("ffplay", "-version");
+    private static readonly ToolProbe HasMpv = new("mpv", "--version");
+    private static readonly ToolProbe HasFfmpeg = new("ffmpeg", "-version");
 
     private static readonly Lazy<bool> HasXprop = new(() => DetectTool("xprop", "-version"));
 
@@ -30,6 +31,42 @@ public sealed class LinuxAudioService : IAudioService
     private long _foregroundStamp = long.MinValue;
 
     public bool IsSupported => HasPactl.Value;
+
+    /// <summary>
+    /// The tools this backend shells out to. Probes again on every call rather than trusting the
+    /// first answer, so a package installed while LoupixDeck is running reads as met on the next
+    /// check. Note that commands are only registered at load: after installing pactl the plugin
+    /// still needs a restart to offer them, which the hint says.
+    /// </summary>
+    public IReadOnlyList<PluginRequirement> GetRequirements()
+    {
+        bool pactl = HasPactl.Refresh();
+        bool paplay = HasPaplay.Refresh();
+        bool mpv = HasMpv.Refresh();
+        bool ffplay = HasFfplay.Refresh();
+        HasFfmpeg.Refresh();
+
+        return
+        [
+            new PluginRequirement
+            {
+                Id = "pactl",
+                Name = "pactl (pulseaudio-utils)",
+                IsMet = pactl,
+                Message = "pactl is missing, so the Audio plugin has no commands.",
+                InstallHint = "Install the package pulseaudio-utils (Arch Linux: libpulse), then restart LoupixDeck."
+            },
+            new PluginRequirement
+            {
+                Id = "sound-player",
+                Name = "Sound player (paplay, mpv or ffplay)",
+                IsMet = paplay || mpv || ffplay,
+                Message = "No sound player was found, so sounds cannot be played.",
+                InstallHint = "Install pulseaudio-utils (paplay) or mpv. For mp3 and m4a files mpv, "
+                              + "or ffmpeg together with paplay, is needed."
+            }
+        ];
+    }
 
     public IReadOnlyList<AudioEndpointInfo> GetEndpoints(AudioEndpointKind kind)
     {
@@ -642,9 +679,7 @@ public sealed class LinuxAudioService : IAudioService
         }
     }
 
-    private static bool DetectPactl() => DetectTool("pactl", "--version");
-
-    /// <summary>Probes once whether a CLI tool is installed and runnable.</summary>
+    /// <summary>Probes whether a CLI tool is installed and runnable.</summary>
     private static bool DetectTool(string fileName, string arguments)
     {
         try
@@ -661,6 +696,34 @@ public sealed class LinuxAudioService : IAudioService
             return p.ExitCode == 0;
         }
         catch { return false; }
+    }
+
+    /// <summary>A CLI tool that is probed on first use and can be probed again on demand.</summary>
+    private sealed class ToolProbe(string fileName, string arguments)
+    {
+        private volatile int _state; // 0 = not probed yet, 1 = present, 2 = absent
+
+        public bool Value
+        {
+            get
+            {
+                int state = _state;
+                if (state == 0)
+                {
+                    state = DetectTool(fileName, arguments) ? 1 : 2;
+                    _state = state;
+                }
+
+                return state == 1;
+            }
+        }
+
+        /// <summary>Forgets the earlier answer and probes the tool again.</summary>
+        public bool Refresh()
+        {
+            _state = 0;
+            return Value;
+        }
     }
 
     private sealed class Subscription(Process proc, CancellationTokenSource cts) : IDisposable

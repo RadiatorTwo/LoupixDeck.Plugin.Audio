@@ -51,6 +51,9 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
 
     public bool IsSupported => true;
 
+    // WASAPI ships with Windows, so there is nothing that could be missing.
+    public IReadOnlyList<PluginRequirement> GetRequirements() => [];
+
     public IReadOnlyList<AudioEndpointInfo> GetEndpoints(AudioEndpointKind kind)
     {
         using var enumerator = new MMDeviceEnumerator();
