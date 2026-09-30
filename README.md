@@ -38,18 +38,16 @@ Each tile shows the application's icon, its level and its name. On Windows the
 icon and the name (the executable's file description, for example "Google
 Chrome") come from the executable; on Linux, and for applications without an
 icon, a speaker is shown. The command has two parameters, so every assignment
-can look different (four parameters):
+can look different (five parameters):
 
 - `layout` — `Top` (icon above level and name, the default), `Left` (icon on the
   left, name over two lines), `Background` (faded icon behind a large level) or
   `Arc` (faded icon inside an arc that shows the level).
-- `font` — `Smooth` (the default) draws the text in LoupixDeck's anti-aliased font;
-  a long name is shortened instead of scrolling. `Pixel` draws it in a 5x7 bitmap
-  font that sits exactly on the panel's pixels: uppercase, 12 characters per line
-  on a 90 px key, and the name of the selected tile scrolls when it is longer. A
-  name the bitmap font cannot spell (for example Chinese or Cyrillic) is drawn in
-  the smooth font automatically.
-
+- `font` — `Smooth` (the default) draws the text in LoupixDeck's anti-aliased font.
+  `Pixel` draws it in a 5x7 bitmap font that sits exactly on the panel's pixels:
+  uppercase, 12 characters per line on a 90 px key. A name the bitmap font cannot
+  spell (for example Chinese or Cyrillic) is drawn in the smooth font
+  automatically.
 - `transparent` — no tile background: the wallpaper (or the device's black) shows
   through, and the level's track becomes translucent. The selected tile is still
   marked by its frame.
@@ -57,8 +55,15 @@ can look different (four parameters):
   transparent tile over a busy wallpaper. In the smooth font the outline is drawn
   by LoupixDeck and is a little heavier than the bitmap font's one pixel.
 
+- `scroll` — which tiles run a name that is wider than the tile: `All` (the
+  default), `Selected` (only the tile with the frame) or `Off`. A scrolling name
+  moves left at a constant speed and comes back in from the right; a name that is
+  not allowed to scroll is cut with an ellipsis. The layout `Left` never scrolls,
+  it breaks the name over two lines. Scrolling redraws the folder about ten times a
+  second for as long as a name is running.
+
 An assignment saved before these parameters existed uses the defaults (solid
-background, no outline).
+background, no outline, everything scrolls).
 
 The tiles are drawn at the size of the key, so they stay sharp on a calibrated key
 (74 px, for example). That needs LoupixDeck with Plugin SDK 1.28.0 or newer; an
