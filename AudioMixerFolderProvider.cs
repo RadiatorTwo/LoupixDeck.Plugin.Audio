@@ -17,6 +17,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private readonly IAudioService _audio;
     private readonly AudioFolderGrid _grid;
     private readonly IPluginHost _host;
+    private readonly MixerTileStyle _style;
     private readonly Dictionary<int, RotaryOverride> _rotaries;
 
     private IReadOnlyList<AudioSessionInfo> _sessions = [];
@@ -24,11 +25,13 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private string? _rendered;
     private Timer? _refresh;
 
-    internal AudioMixerFolderProvider(IAudioService audio, AudioFolderGrid grid, IPluginHost host)
+    internal AudioMixerFolderProvider(IAudioService audio, AudioFolderGrid grid, IPluginHost host,
+        MixerTileStyle style)
     {
         _audio = audio;
         _grid = grid;
         _host = host;
+        _style = style;
         _rotaries = new Dictionary<int, RotaryOverride>
         {
             [0] = new RotaryOverride

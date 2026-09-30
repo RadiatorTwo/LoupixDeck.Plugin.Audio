@@ -62,7 +62,21 @@ internal sealed class AudioMixerFolderCommand(IAudioService audio) : IPluginComm
         DisplayName = "Audio: Mixer",
         Group = "Audio",
         Icon = "\U000F057E",
-        Description = "Open the per-application volume mixer"
+        Description = "Open the per-application volume mixer",
+        // Both parameters are optional in effect: a binding saved before they existed has none
+        // and gets the defaults.
+        ParameterTemplate = "({layout},{font})",
+        Parameters =
+        [
+            new CommandParameter("layout", typeof(MixerTileLayout))
+            {
+                DefaultValue = nameof(MixerTileLayout.Top)
+            },
+            new CommandParameter("font", typeof(MixerTileFont))
+            {
+                DefaultValue = nameof(MixerTileFont.Pixel)
+            }
+        ]
     };
 
     public ButtonTargets SupportedTargets => ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
@@ -70,7 +84,8 @@ internal sealed class AudioMixerFolderCommand(IAudioService audio) : IPluginComm
     public Task Execute(CommandContext ctx)
     {
         AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
-        ctx.Host.OpenFolder(new AudioMixerFolderProvider(audio, grid, ctx.Host));
+        MixerTileStyle style = MixerTileStyle.FromParameters(ctx.Parameters);
+        ctx.Host.OpenFolder(new AudioMixerFolderProvider(audio, grid, ctx.Host, style));
         return Task.CompletedTask;
     }
 }
