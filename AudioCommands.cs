@@ -77,8 +77,8 @@ internal sealed class AudioMixerFolderCommand(IAudioService audio, AppIdentityCa
             {
                 DefaultValue = nameof(MixerTileFont.Smooth)
             },
-            new CommandParameter("transparent", typeof(bool)) { DefaultValue = "False" },
-            new CommandParameter("outlined", typeof(bool)) { DefaultValue = "False" },
+            new CommandParameter("transparent", typeof(bool)) { DefaultValue = "True" },
+            new CommandParameter("outlined", typeof(bool)) { DefaultValue = "True" },
             new CommandParameter("scroll", typeof(MixerTileScroll))
             {
                 DefaultValue = nameof(MixerTileScroll.All)

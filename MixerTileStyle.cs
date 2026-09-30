@@ -51,7 +51,7 @@ public enum MixerTileScroll
 /// <param name="Outlined">Dark outline around the text, for legibility on a wallpaper.</param>
 /// <param name="Scroll">Which tiles scroll a name that does not fit.</param>
 internal readonly record struct MixerTileStyle(MixerTileLayout Layout, MixerTileFont Font,
-    bool Transparent = false, bool Outlined = false, MixerTileScroll Scroll = MixerTileScroll.All)
+    bool Transparent = true, bool Outlined = true, MixerTileScroll Scroll = MixerTileScroll.All)
 {
     public static MixerTileStyle Default { get; } = new(MixerTileLayout.Top, MixerTileFont.Smooth);
 
@@ -75,8 +75,14 @@ internal readonly record struct MixerTileStyle(MixerTileLayout Layout, MixerTile
             font = parsedFont;
         }
 
-        bool transparent = parameters is { Length: > 2 } && bool.TryParse(parameters[2], out bool t) && t;
-        bool outlined = parameters is { Length: > 3 } && bool.TryParse(parameters[3], out bool o) && o;
+        // A missing or unreadable value keeps the default, an explicit True or False overrides it.
+        bool transparent = Default.Transparent;
+        if (parameters is { Length: > 2 } && bool.TryParse(parameters[2], out bool parsedTransparent))
+            transparent = parsedTransparent;
+
+        bool outlined = Default.Outlined;
+        if (parameters is { Length: > 3 } && bool.TryParse(parameters[3], out bool parsedOutlined))
+            outlined = parsedOutlined;
 
         MixerTileScroll scroll = Default.Scroll;
         if (parameters is { Length: > 4 } &&
