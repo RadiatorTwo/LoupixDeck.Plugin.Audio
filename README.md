@@ -48,10 +48,10 @@ can look different (five parameters):
   uppercase, 12 characters per line on a 90 px key. A name the bitmap font cannot
   spell (for example Chinese or Cyrillic) is drawn in the smooth font
   automatically.
-- `transparent` — no tile background: the wallpaper (or the device's black) shows
+- `transparent` (on by default) — no tile background: the wallpaper (or the device's black) shows
   through, and the level's track becomes translucent. The selected tile is still
   marked by its frame.
-- `outlined` — a dark outline around the text, which keeps it legible on a
+- `outlined` (on by default) — a dark outline around the text, which keeps it legible on a
   transparent tile over a busy wallpaper. In the smooth font the outline is drawn
   by LoupixDeck and is a little heavier than the bitmap font's one pixel.
 
@@ -62,8 +62,9 @@ can look different (five parameters):
   it breaks the name over two lines. Scrolling redraws the folder about ten times a
   second for as long as a name is running.
 
-An assignment saved before these parameters existed uses the defaults (solid
-background, no outline, everything scrolls).
+An assignment saved before these parameters existed uses the defaults (transparent
+background, outlined text, everything scrolls); untick the two options for a solid
+tile without outline.
 
 The tiles are drawn at the size of the key, so they stay sharp on a calibrated key
 (74 px, for example). That needs LoupixDeck with Plugin SDK 1.28.0 or newer; an
