@@ -43,6 +43,7 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
     private long _renderEndpointsStamp;
     private readonly Dictionary<string, CachedEndpoint> _sessionCache = new(StringComparer.Ordinal);
     private readonly Dictionary<uint, string> _appIdByPid = [];
+    private readonly Dictionary<uint, string> _imagePathByPid = [];
 
     private sealed record CachedEndpoint(MMDevice Device, AudioSessionManager Manager);
 
@@ -295,7 +296,8 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
             }
             else
             {
-                byApp[appId] = new AudioSessionInfo(appId, displayName, volume, muted);
+                byApp[appId] = new AudioSessionInfo(appId, displayName, volume, muted,
+                    ImagePathOf(session.GetProcessID));
             }
         });
 
@@ -525,11 +527,15 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
         if (livePids.Count == 0)
         {
             _appIdByPid.Clear();
+            _imagePathByPid.Clear();
             return;
         }
 
         foreach (uint pid in _appIdByPid.Keys.Where(pid => !livePids.Contains(pid)).ToList())
+        {
             _appIdByPid.Remove(pid);
+            _imagePathByPid.Remove(pid);
+        }
     }
 
     /// <summary>Releases every cached session device. Called by the plugin on shutdown.</summary>
@@ -539,6 +545,7 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
         {
             foreach (string id in _sessionCache.Keys.ToList()) ReleaseEndpoint(id);
             _appIdByPid.Clear();
+            _imagePathByPid.Clear();
             _renderEndpointIds = [];
             _renderEndpointsStamp = 0;
         }
@@ -566,6 +573,9 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
         return name;
     }
 
+    /// <summary>The executable of a process whose name was already resolved, or null (system sounds, unreadable process).</summary>
+    private string? ImagePathOf(uint pid) => _imagePathByPid.GetValueOrDefault(pid);
+
     private string QueryProcessName(uint pid)
     {
         // Roughly twenty times cheaper than Process.GetProcessById, and it succeeds for
@@ -573,7 +583,10 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
         // for the ones it cannot open.
         string? imagePath = NativeMethods.QueryProcessImagePath(pid);
         if (imagePath != null)
+        {
+            _imagePathByPid[pid] = imagePath;
             return Path.GetFileNameWithoutExtension(imagePath).ToLowerInvariant();
+        }
 
         try
         {

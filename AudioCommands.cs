@@ -14,9 +14,12 @@ internal sealed class AudioOutputFolderCommand(IAudioService audio, AudioAliasSt
         CommandName = "Audio.OutputDevices",
         DisplayName = "Audio: Output Devices",
         Group = "Audio",
-        Icon = "\U000F04C3",
+        Icon = AudioButtonLayouts.Speaker,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Speaker, "Output"),
         Description = "Open the output device picker folder",
-        HiddenFromMenu = true
+        HiddenFromMenu = true,
+        ParameterTemplate = MixerTileStyle.ParameterTemplate,
+        Parameters = MixerTileStyle.Parameters()
     };
 
     public ButtonTargets SupportedTargets => ButtonTargets.TouchButton;
@@ -24,7 +27,8 @@ internal sealed class AudioOutputFolderCommand(IAudioService audio, AudioAliasSt
     public Task Execute(CommandContext ctx)
     {
         AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
-        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Render, aliasStore, visibility, grid, ctx.Host));
+        MixerTileStyle style = MixerTileStyle.FromParameters(ctx.Parameters);
+        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Render, aliasStore, visibility, grid, ctx.Host, style));
         return Task.CompletedTask;
     }
 }
@@ -38,9 +42,12 @@ internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasSto
         CommandName = "Audio.InputDevices",
         DisplayName = "Audio: Input Devices",
         Group = "Audio",
-        Icon = "\U000F036C",
+        Icon = AudioButtonLayouts.Microphone,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Microphone, "Input"),
         Description = "Open the input device picker folder",
-        HiddenFromMenu = true
+        HiddenFromMenu = true,
+        ParameterTemplate = MixerTileStyle.ParameterTemplate,
+        Parameters = MixerTileStyle.Parameters()
     };
 
     public ButtonTargets SupportedTargets => ButtonTargets.TouchButton;
@@ -48,21 +55,26 @@ internal sealed class AudioInputFolderCommand(IAudioService audio, AudioAliasSto
     public Task Execute(CommandContext ctx)
     {
         AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
-        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Capture, aliasStore, visibility, grid, ctx.Host));
+        MixerTileStyle style = MixerTileStyle.FromParameters(ctx.Parameters);
+        ctx.Host.OpenFolder(new AudioDevicesFolderProvider(audio, AudioEndpointKind.Capture, aliasStore, visibility, grid, ctx.Host, style));
         return Task.CompletedTask;
     }
 }
 
 /// <summary>Opens the per-application mixer folder.</summary>
-internal sealed class AudioMixerFolderCommand(IAudioService audio) : IPluginCommand
+internal sealed class AudioMixerFolderCommand(IAudioService audio, AppIdentityCache identity) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
         CommandName = "Audio.Mixer",
         DisplayName = "Audio: Mixer",
         Group = "Audio",
-        Icon = "\U000F057E",
-        Description = "Open the per-application volume mixer"
+        Icon = AudioButtonLayouts.Mixer,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Mixer, "Mixer"),
+        Description = "Open the per-application volume mixer",
+        HiddenFromMenu = true,
+        ParameterTemplate = MixerTileStyle.ParameterTemplate,
+        Parameters = MixerTileStyle.Parameters()
     };
 
     public ButtonTargets SupportedTargets => ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
@@ -70,7 +82,8 @@ internal sealed class AudioMixerFolderCommand(IAudioService audio) : IPluginComm
     public Task Execute(CommandContext ctx)
     {
         AudioFolderGrid grid = FolderGridResolver.Resolve(ctx.Host);
-        ctx.Host.OpenFolder(new AudioMixerFolderProvider(audio, grid, ctx.Host));
+        MixerTileStyle style = MixerTileStyle.FromParameters(ctx.Parameters);
+        ctx.Host.OpenFolder(new AudioMixerFolderProvider(audio, grid, ctx.Host, style, identity));
         return Task.CompletedTask;
     }
 }

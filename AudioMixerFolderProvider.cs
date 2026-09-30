@@ -1,4 +1,5 @@
 using System.Text;
+using LoupixDeck.Plugin.Audio.Rendering;
 using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Audio;
@@ -8,6 +9,8 @@ namespace LoupixDeck.Plugin.Audio;
 /// level; tapping a tile selects it, the first rotary then adjusts the selected app and
 /// its press toggles mute. Refreshes on a timer because neither WASAPI sessions nor pactl
 /// give a usable per-session change notification across both platforms.
+/// Each tile is a picture drawn by <see cref="MixerTileRenderer"/> (icon, level, name); the look
+/// is chosen by the command's layout and font parameters.
 /// </summary>
 public sealed class AudioMixerFolderProvider : FolderProviderBase
 {
@@ -17,6 +20,9 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private readonly IAudioService _audio;
     private readonly AudioFolderGrid _grid;
     private readonly IPluginHost _host;
+    private readonly MixerTileStyle _style;
+    private readonly AppIdentityCache _identity;
+    private readonly TileSlotPainter _painter;
     private readonly Dictionary<int, RotaryOverride> _rotaries;
 
     private IReadOnlyList<AudioSessionInfo> _sessions = [];
@@ -24,11 +30,15 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private string? _rendered;
     private Timer? _refresh;
 
-    internal AudioMixerFolderProvider(IAudioService audio, AudioFolderGrid grid, IPluginHost host)
+    internal AudioMixerFolderProvider(IAudioService audio, AudioFolderGrid grid, IPluginHost host,
+        MixerTileStyle style, AppIdentityCache identity)
     {
         _audio = audio;
         _grid = grid;
         _host = host;
+        _style = style;
+        _identity = identity;
+        _painter = new TileSlotPainter(RaiseEntriesChanged);
         _rotaries = new Dictionary<int, RotaryOverride>
         {
             [0] = new RotaryOverride
@@ -46,9 +56,9 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
 
     public override void OnEnter()
     {
-        // Force the first frame: the folder may have been open before with other content.
-        _rendered = null;
-        Reload();
+        // The host builds the entries right after this returns, so nothing is announced here: an announcement
+        // during OnEnter makes it redraw the page or parent folder first and race that with the new folder.
+        Reload(announce: false);
         // The timer only lives while the folder is open, so a closed mixer costs nothing.
         _refresh = new Timer(_ => Reload(), null, RefreshInterval, RefreshInterval);
     }
@@ -57,11 +67,13 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     {
         _refresh?.Dispose();
         _refresh = null;
+        _painter.Stop();
     }
 
     public override IReadOnlyList<FolderEntry> BuildEntries()
     {
         List<FolderEntry> entries = [];
+        HashSet<string> used = [];
         int index = 0;
 
         foreach (AudioSessionInfo session in _sessions)
@@ -72,26 +84,27 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
             AudioSessionInfo captured = session;
             bool selected = string.Equals(captured.AppId, _selectedAppId, StringComparison.Ordinal);
             int percent = (int)Math.Round(captured.Volume * 100f);
+            AppIdentity identity = _identity.Resolve(captured.ExecutablePath);
+            string name = NameOf(captured, identity);
 
-            entries.Add(new FolderEntry
-            {
-                SlotIndex = slot,
-                Text = $"{percent} %\n{captured.DisplayName}",
-                TextSize = 13,
-                Bold = selected,
-                BackColor = captured.Muted
-                    ? PluginColor.FromRgb(0x70, 0x20, 0x20)
-                    : selected
-                        ? PluginColor.FromRgb(0x20, 0x40, 0x60)
-                        : PluginColor.FromRgb(0x20, 0x20, 0x40),
-                OnPress = () =>
+            MixerTileData data = new(name, percent, captured.Muted, selected, identity.Icon, identity.IconSize,
+                _painter.Frame);
+
+            TileSlotSpec spec = new(
+                slot,
+                captured.Muted ? PluginColor.FromRgb(0x6E, 0x76, 0x7E) : PluginColor.FromRgb(0xFF, 0xFF, 0xFF),
+                () =>
                 {
                     _selectedAppId = captured.AppId;
                     RaiseIfChanged();
                     return Task.CompletedTask;
-                }
-            });
+                });
+
+            entries.Add(_painter.Entry(spec, data, _style,
+                $"{captured.AppId}|{percent}|{captured.Muted}|{selected}|{name}|{captured.ExecutablePath}", used));
         }
+
+        _painter.Prune(index, used);
 
         if (entries.Count == 0)
         {
@@ -107,7 +120,11 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         return entries;
     }
 
-    private void Reload()
+    /// <summary>The executable's file description ("Google Chrome") when it has one, otherwise what the session calls itself.</summary>
+    private static string NameOf(AudioSessionInfo session, AppIdentity identity) =>
+        identity.FriendlyName ?? session.DisplayName;
+
+    private void Reload(bool announce = true)
     {
         _sessions = _audio.GetSessions(null);
 
@@ -121,7 +138,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
 
         _selectedAppId ??= _sessions.Count > 0 ? _sessions[0].AppId : null;
 
-        RaiseIfChanged();
+        RaiseIfChanged(announce);
     }
 
     /// <summary>
@@ -130,25 +147,30 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     /// timer tick would push a full redraw to the device more than once a second for
     /// nothing — most ticks read back exactly what is already on screen.
     /// </summary>
-    private void RaiseIfChanged()
+    private void RaiseIfChanged(bool announce = true)
     {
+        _painter.UpdateMarquee(
+            _sessions.Select(session => (NameOf(session, _identity.Resolve(session.ExecutablePath)),
+                string.Equals(session.AppId, _selectedAppId, StringComparison.Ordinal))),
+            _style);
+
         string snapshot = DescribeEntries();
         if (string.Equals(snapshot, _rendered, StringComparison.Ordinal)) return;
 
         _rendered = snapshot;
-        RaiseEntriesChanged();
+        if (announce) RaiseEntriesChanged();
     }
 
     /// <summary>Everything a tile is drawn from, so an unchanged snapshot means unchanged pixels.</summary>
     private string DescribeEntries()
     {
         StringBuilder builder = new();
-        builder.Append(_selectedAppId).Append('|');
+        builder.Append(_selectedAppId).Append('|').Append(_painter.KeySize).Append('|');
 
         foreach (AudioSessionInfo session in _sessions)
         {
             builder.Append(session.AppId).Append(':')
-                .Append(session.DisplayName).Append(':')
+                .Append(NameOf(session, _identity.Resolve(session.ExecutablePath))).Append(':')
                 // The tile shows whole percent, so a smaller change is invisible.
                 .Append((int)Math.Round(session.Volume * 100f)).Append(':')
                 .Append(session.Muted ? '1' : '0').Append('|');

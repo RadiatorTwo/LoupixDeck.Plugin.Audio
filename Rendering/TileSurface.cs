@@ -1,0 +1,254 @@
+namespace LoupixDeck.Plugin.Audio.Rendering;
+
+/// <summary>
+/// A square ARGB framebuffer a mixer tile is drawn into, the size of the key it ends up on. Coordinates are
+/// pixels of that key, origin top-left, and anything outside is clipped. One surface is reused for every tile
+/// of a folder, so a redraw allocates nothing but the icon it scales.
+/// </summary>
+internal sealed class TileSurface
+{
+    /// <summary>Edge of the reference design, and of the picture sent to a host that cannot take pixels.</summary>
+    public const int DesignSize = 90;
+
+    private readonly uint[] _pixels;
+
+    private int _clipLeft;
+    private int _clipTop;
+    private int _clipRight;
+    private int _clipBottom;
+
+    public TileSurface(int size)
+    {
+        Size = Math.Max(1, size);
+        _pixels = new uint[Size * Size];
+        ResetClip();
+    }
+
+    /// <summary>Edge of the surface in pixels.</summary>
+    public int Size { get; }
+
+    public ReadOnlySpan<uint> Pixels => _pixels;
+
+    /// <summary>Restricts every following draw call to a rectangle, for the scrolling name.</summary>
+    public void SetClip(int x, int y, int width, int height)
+    {
+        _clipLeft = Math.Max(0, x);
+        _clipTop = Math.Max(0, y);
+        _clipRight = Math.Min(Size, x + width);
+        _clipBottom = Math.Min(Size, y + height);
+    }
+
+    public void ResetClip()
+    {
+        _clipLeft = 0;
+        _clipTop = 0;
+        _clipRight = Size;
+        _clipBottom = Size;
+    }
+
+    public void Clear(uint color) => Array.Fill(_pixels, color);
+
+    /// <summary>A frame of <paramref name="thickness"/> px drawn <paramref name="inset"/> px inside the surface's edge.</summary>
+    public void DrawFrame(int inset, int thickness, uint color)
+    {
+        int at = Math.Max(0, inset);
+        int length = Size - (2 * at);
+        Fill(at, at, length, thickness, color);
+        Fill(at, Size - at - thickness, length, thickness, color);
+        Fill(at, at + thickness, thickness, length - (2 * thickness), color);
+        Fill(Size - at - thickness, at + thickness, thickness, length - (2 * thickness), color);
+    }
+
+    /// <summary>Fills a rectangle; a colour with alpha below 255 is blended over what is there.</summary>
+    public void Fill(int x, int y, int width, int height, uint color)
+    {
+        int left = Math.Max(0, x);
+        int top = Math.Max(0, y);
+        int right = Math.Min(Size, x + width);
+        int bottom = Math.Min(Size, y + height);
+
+        for (int row = top; row < bottom; row++)
+            for (int col = left; col < right; col++)
+                Blend(col, row, color);
+    }
+
+    /// <summary>Blends one pixel with straight alpha over the current content.</summary>
+    public void Blend(int x, int y, uint color)
+    {
+        if (x < _clipLeft || x >= _clipRight || y < _clipTop || y >= _clipBottom) return;
+
+        uint alpha = color >> 24;
+        int index = (y * Size) + x;
+        if (alpha == 255)
+        {
+            _pixels[index] = color;
+            return;
+        }
+        if (alpha == 0) return;
+
+        uint under = _pixels[index];
+        uint underAlpha = under >> 24;
+        if (underAlpha == 0)
+        {
+            _pixels[index] = color;
+            return;
+        }
+
+        // Source-over on straight alpha. With an opaque backdrop this is the plain blend; with a transparent
+        // one (the transparent tile) the result stays partly transparent, so the wallpaper still shows through.
+        uint inverse = 255 - alpha;
+        uint outAlpha = alpha + ((underAlpha * inverse) / 255);
+        uint weightUnder = underAlpha * inverse;
+        uint weightNew = alpha * 255;
+        uint total = outAlpha * 255;
+        uint r = ((((color >> 16) & 0xFF) * weightNew) + (((under >> 16) & 0xFF) * weightUnder)) / total;
+        uint g = ((((color >> 8) & 0xFF) * weightNew) + (((under >> 8) & 0xFF) * weightUnder)) / total;
+        uint b = (((color & 0xFF) * weightNew) + ((under & 0xFF) * weightUnder)) / total;
+        _pixels[index] = (outAlpha << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    /// <summary>
+    /// Draws bitmap-font text with its top-left at (x, y) and returns the x past the last glyph. The
+    /// scale is a whole multiple, so no glyph pixel is ever split.
+    /// </summary>
+    public int DrawText(string text, int x, int y, int scale, uint color, uint? outline = null)
+    {
+        if (outline is { } outlineColor)
+        {
+            // The outline is the text drawn once in every direction around its place, then the text on top.
+            int reach = (scale + 1) / 2;
+            for (int oy = -reach; oy <= reach; oy++)
+                for (int ox = -reach; ox <= reach; ox++)
+                    if (ox != 0 || oy != 0)
+                        DrawText(text, x + ox, y + oy, scale, outlineColor);
+        }
+
+        foreach (char c in text)
+        {
+            byte[] rows = BitmapFont5x7.Rows(c);
+            for (int r = 0; r < BitmapFont5x7.GlyphHeight; r++)
+                for (int col = 0; col < BitmapFont5x7.GlyphWidth; col++)
+                    if (((rows[r] >> (BitmapFont5x7.GlyphWidth - 1 - col)) & 1) != 0)
+                        Fill(x + (col * scale), y + (r * scale), scale, scale, color);
+
+            x += BitmapFont5x7.Advance * scale;
+        }
+        return x;
+    }
+
+    /// <summary>
+    /// A ring segment centred on (cx, cy): from <paramref name="startDegrees"/> (0 = 3 o'clock, clockwise)
+    /// over <paramref name="sweepDegrees"/>. Sampled 4 x 4 per pixel so the edge is smooth while the
+    /// rest of the tile stays crisp.
+    /// </summary>
+    public void DrawArc(float cx, float cy, float radius, float thickness, float startDegrees,
+        float sweepDegrees, uint color)
+    {
+        if (sweepDegrees <= 0) return;
+
+        float inner = radius - (thickness / 2);
+        float outer = radius + (thickness / 2);
+        int x0 = (int)MathF.Floor(cx - outer);
+        int x1 = (int)MathF.Ceiling(cx + outer);
+        int y0 = (int)MathF.Floor(cy - outer);
+        int y1 = (int)MathF.Ceiling(cy + outer);
+        uint baseAlpha = color >> 24;
+
+        for (int y = y0; y <= y1; y++)
+        {
+            for (int x = x0; x <= x1; x++)
+            {
+                int hits = 0;
+                for (int sy = 0; sy < 4; sy++)
+                {
+                    for (int sx = 0; sx < 4; sx++)
+                    {
+                        float dx = x + ((sx + 0.5f) / 4) - cx;
+                        float dy = y + ((sy + 0.5f) / 4) - cy;
+                        float d = MathF.Sqrt((dx * dx) + (dy * dy));
+                        if (d < inner || d > outer) continue;
+
+                        float angle = MathF.Atan2(dy, dx) * (180f / MathF.PI);
+                        float rel = angle - startDegrees;
+                        while (rel < 0) rel += 360f;
+                        while (rel >= 360f) rel -= 360f;
+                        if (rel <= sweepDegrees) hits++;
+                    }
+                }
+
+                if (hits == 0) continue;
+                uint alpha = (uint)((baseAlpha * hits) / 16);
+                Blend(x, y, (color & 0x00FFFFFFu) | (alpha << 24));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Draws an icon scaled to <paramref name="size"/> with its top-left at (x, y). The source is
+    /// straight-alpha 0xAARRGGBB; <paramref name="opacity"/> scales its alpha and
+    /// <paramref name="grey"/> replaces the colour by its luma (the muted look). A destination pixel takes
+    /// the alpha-weighted average of the source pixels it covers, so a fractional scale stays smooth
+    /// instead of dropping or doubling rows.
+    /// </summary>
+    public void DrawIcon(ReadOnlySpan<uint> source, int sourceSize, int x, int y, int size, float opacity,
+        bool grey)
+    {
+        float step = (float)sourceSize / size;
+
+        for (int dy = 0; dy < size; dy++)
+        {
+            float sy0 = dy * step;
+            float sy1 = sy0 + step;
+            for (int dx = 0; dx < size; dx++)
+            {
+                float sx0 = dx * step;
+                float sx1 = sx0 + step;
+
+                float weight = 0, a = 0, r = 0, g = 0, b = 0;
+                for (int sy = (int)sy0; sy < Math.Min(sourceSize, (int)MathF.Ceiling(sy1)); sy++)
+                {
+                    float wy = MathF.Min(sy + 1, sy1) - MathF.Max(sy, sy0);
+                    for (int sx = (int)sx0; sx < Math.Min(sourceSize, (int)MathF.Ceiling(sx1)); sx++)
+                    {
+                        float w = wy * (MathF.Min(sx + 1, sx1) - MathF.Max(sx, sx0));
+                        uint p = source[(sy * sourceSize) + sx];
+                        float pa = p >> 24;
+                        weight += w;
+                        a += pa * w;
+                        // Colour is weighted by alpha so a transparent neighbour does not darken the edge.
+                        r += ((p >> 16) & 0xFF) * pa * w;
+                        g += ((p >> 8) & 0xFF) * pa * w;
+                        b += (p & 0xFF) * pa * w;
+                    }
+                }
+
+                if (weight <= 0 || a <= 0) continue;
+
+                float alpha = a / weight;
+                float cr = r / a, cg = g / a, cb = b / a;
+                if (grey)
+                {
+                    float luma = (0.299f * cr) + (0.587f * cg) + (0.114f * cb);
+                    cr = cg = cb = luma;
+                }
+
+                uint outAlpha = (uint)MathF.Round(alpha * opacity);
+                if (outAlpha == 0) continue;
+
+                Blend(x + dx, y + dy,
+                    (outAlpha << 24) | ((uint)MathF.Round(cr) << 16) | ((uint)MathF.Round(cg) << 8) | (uint)MathF.Round(cb));
+            }
+        }
+    }
+
+    /// <summary>64-bit FNV-1a over all pixels; equal hashes mean the same picture, so an unchanged tile can skip its PNG.</summary>
+    public ulong ContentHash()
+    {
+        ulong hash = 14695981039346656037UL;
+        foreach (uint p in _pixels)
+        {
+            hash = (hash ^ p) * 1099511628211UL;
+        }
+        return hash;
+    }
+}
