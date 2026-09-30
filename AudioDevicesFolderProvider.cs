@@ -52,9 +52,9 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
     {
         _aliasStore.Changed += OnAliasChanged;
 
-        // Force the first frame: the folder may have been open before with other content.
-        _rendered = null;
-        Reload();
+        // The host builds the entries right after this returns, so nothing is announced here: an announcement
+        // during OnEnter makes it redraw the page or parent folder first and race that with the new folder.
+        Reload(announce: false);
         // The timer only lives while the folder is open, so a closed folder costs nothing.
         _refresh = new Timer(_ => Reload(), null, RefreshInterval, RefreshInterval);
     }
@@ -143,10 +143,10 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
         Reload();
     }
 
-    private void Reload()
+    private void Reload(bool announce = true)
     {
         _rows = ReadRows();
-        RaiseIfChanged();
+        RaiseIfChanged(announce);
     }
 
     /// <summary>
@@ -154,7 +154,7 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
     /// slot of the folder on each change, so raising the event on every timer tick would push a full
     /// redraw to the device more than once a second for nothing.
     /// </summary>
-    private void RaiseIfChanged()
+    private void RaiseIfChanged(bool announce = true)
     {
         IReadOnlyList<DeviceRow> rows = _rows ?? [];
         _painter.UpdateMarquee(rows.Select(row => (row.Name, row.Endpoint.IsDefault)), _style);
@@ -171,6 +171,6 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
         if (string.Equals(snapshot, _rendered, StringComparison.Ordinal)) return;
 
         _rendered = snapshot;
-        RaiseEntriesChanged();
+        if (announce) RaiseEntriesChanged();
     }
 }

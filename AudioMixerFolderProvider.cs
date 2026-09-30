@@ -56,9 +56,9 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
 
     public override void OnEnter()
     {
-        // Force the first frame: the folder may have been open before with other content.
-        _rendered = null;
-        Reload();
+        // The host builds the entries right after this returns, so nothing is announced here: an announcement
+        // during OnEnter makes it redraw the page or parent folder first and race that with the new folder.
+        Reload(announce: false);
         // The timer only lives while the folder is open, so a closed mixer costs nothing.
         _refresh = new Timer(_ => Reload(), null, RefreshInterval, RefreshInterval);
     }
@@ -124,7 +124,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private static string NameOf(AudioSessionInfo session, AppIdentity identity) =>
         identity.FriendlyName ?? session.DisplayName;
 
-    private void Reload()
+    private void Reload(bool announce = true)
     {
         _sessions = _audio.GetSessions(null);
 
@@ -138,7 +138,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
 
         _selectedAppId ??= _sessions.Count > 0 ? _sessions[0].AppId : null;
 
-        RaiseIfChanged();
+        RaiseIfChanged(announce);
     }
 
     /// <summary>
@@ -147,7 +147,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     /// timer tick would push a full redraw to the device more than once a second for
     /// nothing — most ticks read back exactly what is already on screen.
     /// </summary>
-    private void RaiseIfChanged()
+    private void RaiseIfChanged(bool announce = true)
     {
         _painter.UpdateMarquee(
             _sessions.Select(session => (NameOf(session, _identity.Resolve(session.ExecutablePath)),
@@ -158,7 +158,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         if (string.Equals(snapshot, _rendered, StringComparison.Ordinal)) return;
 
         _rendered = snapshot;
-        RaiseEntriesChanged();
+        if (announce) RaiseEntriesChanged();
     }
 
     /// <summary>Everything a tile is drawn from, so an unchanged snapshot means unchanged pixels.</summary>
