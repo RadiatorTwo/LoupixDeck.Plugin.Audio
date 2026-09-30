@@ -38,7 +38,7 @@ Each tile shows the application's icon, its level and its name. On Windows the
 icon and the name (the executable's file description, for example "Google
 Chrome") come from the executable; on Linux, and for applications without an
 icon, a speaker is shown. The command has two parameters, so every assignment
-can look different:
+can look different (four parameters):
 
 - `layout` — `Top` (icon above level and name, the default), `Left` (icon on the
   left, name over two lines), `Background` (faded icon behind a large level) or
@@ -50,7 +50,15 @@ can look different:
   name the bitmap font cannot spell (for example Chinese or Cyrillic) is drawn in
   the smooth font automatically.
 
-An assignment saved before these parameters existed uses the defaults.
+- `transparent` — no tile background: the wallpaper (or the device's black) shows
+  through, and the level's track becomes translucent. The selected tile is still
+  marked by its frame.
+- `outlined` — a dark outline around the text, which keeps it legible on a
+  transparent tile over a busy wallpaper. In the smooth font the outline is drawn
+  by LoupixDeck and is a little heavier than the bitmap font's one pixel.
+
+An assignment saved before these parameters existed uses the defaults (solid
+background, no outline).
 
 The tiles are drawn at the size of the key, so they stay sharp on a calibrated key
 (74 px, for example). That needs LoupixDeck with Plugin SDK 1.28.0 or newer; an
