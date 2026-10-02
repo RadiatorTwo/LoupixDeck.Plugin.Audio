@@ -36,8 +36,20 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         Version = new Version(1, 15, 0),
         SdkVersion = SdkInfo.Version,
         Author = "RadiatorTwo",
-        Description = "Pick the active audio output/input device and adjust volume and mute from the device."
+        Description = "Pick the active audio output/input device and adjust volume and mute from the device.",
+        Icon = LoadIcon()
     };
+
+    /// <summary>The plugin icon (icon.png, embedded). Missing data only costs the icon.</summary>
+    private static byte[]? LoadIcon()
+    {
+        using Stream? stream = typeof(AudioPlugin).Assembly.GetManifestResourceStream("LoupixDeck.Plugin.Audio.icon.png");
+        if (stream == null) return null;
+
+        using MemoryStream buffer = new();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
+    }
 
     public override void Initialize(IPluginHost host)
     {
