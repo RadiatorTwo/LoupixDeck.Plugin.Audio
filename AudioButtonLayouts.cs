@@ -22,6 +22,7 @@ internal static class AudioButtonLayouts
     public const string DefaultDevice = "\U000F05E0"; // mdi-check-circle
     public const string Sound = "\U000F075A";         // mdi-music
     public const string Stop = "\U000F04DB";          // mdi-stop
+    public const string Cycle = "\U000F0456";         // mdi-repeat
 
     // Pixel values for a 90 px key; the host scales them onto the key actually being written.
     private const double IconScale = 0.5;

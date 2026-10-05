@@ -26,6 +26,17 @@ reads "No device" when none is set.
 It takes the same five tile parameters as `Audio.OutputDevices` (see below), which
 set the look of the picker it opens.
 
+`Audio.CycleOutput` — make the next output device the system default, so one
+button switches between speakers and headset. The button shows the device in
+use; on a dial the new name flashes next to it. Without a device list it walks
+the devices the output picker shows (the ones not hidden in the settings). The
+`devices` parameter limits it to a list, in that order, separated by `|`, for
+example `Speakers|Headset`. An entry is a device's alias, its name or its id;
+when nothing matches exactly, a part of the alias or name does. Windows device
+names such as `Speakers (Realtek(R) Audio)` contain a closing parenthesis, which
+a binding cannot carry, so name that device by a part (`Realtek`) or give it an
+alias. A device in the list that is not connected is skipped.
+
 `Audio.VolumeUp` / `Audio.VolumeDown` / `Audio.MuteToggle` — act on one
 device, assigned from the command menu (Audio → Output/Input Devices). The
 volume step is editable per assignment.

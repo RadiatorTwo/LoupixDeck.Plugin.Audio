@@ -21,6 +21,7 @@ public sealed partial class AudioPlugin
         [
             new MenuNode { Name = "Select Output Device", CommandName = "Audio.OutputDevices" },
             new MenuNode { Name = "Current Output Device", CommandName = "Audio.CurrentOutput" },
+            new MenuNode { Name = "Cycle Output Device", CommandName = "Audio.CycleOutput" },
             new MenuNode { Name = "Select Input Device", CommandName = "Audio.InputDevices" },
             new MenuNode { Name = "Mixer", CommandName = "Audio.Mixer" },
             // Bound to the default input rather than a fixed microphone, so the button keeps working
