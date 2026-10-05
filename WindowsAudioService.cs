@@ -373,7 +373,7 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
 
         try
         {
-            return PolicyConfig.SetDefaultEndpoint(endpointId);
+            return PolicyConfig.SetDefaultEndpoint(endpointId, Logger);
         }
         catch (Exception ex)
         {
