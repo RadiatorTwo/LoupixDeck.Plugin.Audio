@@ -286,7 +286,13 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
             try { old?.Dispose(); }
             catch { /* best effort */ }
 
-            Seed(bar, current);
+            // Read into locals: a later rebind may already own the bar, and its values must not be
+            // overwritten with this endpoint's.
+            float volume = 0f;
+            bool muted = false;
+            try { volume = _audio.GetVolume(current); muted = _audio.GetMute(current); }
+            catch { /* endpoint may have vanished */ }
+
             IDisposable? subscription = Subscribe(bar, current);
 
             bool keep;
@@ -294,7 +300,12 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
             {
                 keep = !_disposed && bar.Subscription == null
                        && string.Equals(bar.DeviceId, current, StringComparison.Ordinal);
-                if (keep) bar.Subscription = subscription;
+                if (keep)
+                {
+                    bar.Subscription = subscription;
+                    bar.Volume = volume;
+                    bar.Muted = muted;
+                }
             }
 
             if (!keep)
