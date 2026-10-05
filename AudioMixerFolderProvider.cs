@@ -24,6 +24,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private readonly AppIdentityCache _identity;
     private readonly TileSlotPainter _painter;
     private readonly Dictionary<int, RotaryOverride> _rotaries;
+    private readonly FolderPager _pager;
 
     private IReadOnlyList<AudioSessionInfo> _sessions = [];
     private string? _selectedAppId;
@@ -41,6 +42,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     {
         _audio = audio;
         _grid = grid;
+        _pager = new FolderPager(grid);
         _host = host;
         _style = style;
         _identity = identity;
@@ -85,14 +87,15 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     {
         List<FolderEntry> entries = [];
         HashSet<string> used = [];
-        int index = 0;
+        HashSet<int> shown = [];
+        FolderPage page = _pager.Layout(_sessions.Count);
 
-        foreach (AudioSessionInfo session in _sessions)
+        for (int index = 0; index < page.Count; index++)
         {
-            int slot = _grid.SlotForIndex(index++);
-            if (slot < 0) break; // grid full
+            int slot = _grid.SlotForIndex(index);
+            shown.Add(slot);
 
-            AudioSessionInfo captured = session;
+            AudioSessionInfo captured = _sessions[page.First + index];
             bool selected = string.Equals(captured.AppId, _selectedAppId, StringComparison.Ordinal);
             int percent = (int)Math.Round(captured.Volume * 100f);
             AppIdentity identity = _identity.Resolve(captured.ExecutablePath);
@@ -121,7 +124,8 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
                 $"{captured.AppId}|{percent}|{captured.Muted}|{selected}|{name}|{captured.ExecutablePath}", used));
         }
 
-        _painter.Prune(index, used);
+        _painter.Prune(shown, used);
+        FolderPager.AddNavigation(entries, page, _host, TurnPage);
 
         if (entries.Count == 0)
         {
@@ -135,6 +139,13 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         }
 
         return entries;
+    }
+
+    private void TurnPage(int delta)
+    {
+        bool changed;
+        lock (_gate) changed = _pager.Turn(delta) && UpdateSnapshot();
+        if (changed) RaiseEntriesChanged();
     }
 
     /// <summary>The executable's file description ("Google Chrome") when it has one, otherwise what the session calls itself.</summary>
@@ -197,12 +208,15 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     /// </summary>
     private bool UpdateSnapshot()
     {
+        // Only the current page is on screen, so only its names may need the marquee.
+        FolderPage page = _pager.Layout(_sessions.Count);
         _painter.UpdateMarquee(
-            _sessions.Select(session => (NameOf(session, _identity.Resolve(session.ExecutablePath)),
+            _sessions.Skip(page.First).Take(page.Count)
+                .Select(session => (NameOf(session, _identity.Resolve(session.ExecutablePath)),
                 string.Equals(session.AppId, _selectedAppId, StringComparison.Ordinal))),
             _style);
 
-        string snapshot = DescribeEntries();
+        string snapshot = $"{page.Page}/{page.PageCount}|{DescribeEntries()}";
         if (string.Equals(snapshot, _rendered, StringComparison.Ordinal)) return false;
 
         _rendered = snapshot;
