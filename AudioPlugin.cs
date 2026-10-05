@@ -285,9 +285,9 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     }
 
     /// <summary>
-    /// The endpoints of one kind, or none when the backend cannot enumerate them. Preset building
-    /// runs on whatever thread opened a preset surface, and a failure there must cost the presets,
-    /// not the plugin.
+    /// The endpoints of one kind, or none when the backend cannot enumerate them. The dial presets,
+    /// the command menu and the settings page all build from this list on whatever thread asked,
+    /// and a failure there must cost that one list, not the plugin.
     /// </summary>
     private IReadOnlyList<AudioEndpointInfo> Endpoints(AudioEndpointKind kind)
     {
@@ -297,7 +297,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         }
         catch (Exception ex)
         {
-            _logger?.Warn($"Could not list {kind} endpoints for the dial presets: {ex.Message}");
+            _logger?.Warn($"Could not list {kind} endpoints: {ex.Message}");
             return [];
         }
     }
@@ -315,8 +315,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         if (!_audio.IsSupported || _aliasStore == null)
             return Task.FromResult<IReadOnlyList<MenuNode>>([]);
 
-        var outputs = _audio.GetEndpoints(AudioEndpointKind.Render);
-        var inputs = _audio.GetEndpoints(AudioEndpointKind.Capture);
+        var outputs = Endpoints(AudioEndpointKind.Render);
+        var inputs = Endpoints(AudioEndpointKind.Capture);
 
         // The "Volume Control" rotary group only makes sense on a rotary encoder;
         // it never appears for simple/touch buttons.
@@ -358,7 +358,19 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         List<MenuNode> children = [AppNode("Foreground App", AudioAppParameter.ForegroundAppId, includeGroup)];
 
-        foreach (AudioSessionInfo session in _audio.GetSessions(null))
+        IReadOnlyList<AudioSessionInfo> sessions;
+        try
+        {
+            sessions = _audio.GetSessions(null);
+        }
+        catch (Exception ex)
+        {
+            // Without the running apps the menu still offers the foreground entry.
+            _logger?.Warn($"Could not list audio sessions: {ex.Message}");
+            sessions = [];
+        }
+
+        foreach (AudioSessionInfo session in sessions)
             children.Add(AppNode(session.DisplayName, session.AppId, includeGroup));
 
         return new MenuNode { Name = "Applications", CommandName = string.Empty, Children = children };
@@ -542,7 +554,7 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         _aliasStore?.Reload();
         // Collapse the per-device playback toggles back into a single selection.
         if (_audio.IsSupported)
-            _playbackDevices?.Normalize(_audio.GetEndpoints(AudioEndpointKind.Render));
+            _playbackDevices?.Normalize(Endpoints(AudioEndpointKind.Render));
         // The layout toggle may have flipped — repaint any live volume strips.
         _stripProvider?.NotifyLayoutChanged();
     }
@@ -551,8 +563,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
     {
         if (!_audio.IsSupported || _aliasStore == null) return [];
 
-        var outputs = _audio.GetEndpoints(AudioEndpointKind.Render);
-        var inputs = _audio.GetEndpoints(AudioEndpointKind.Capture);
+        var outputs = Endpoints(AudioEndpointKind.Render);
+        var inputs = Endpoints(AudioEndpointKind.Capture);
 
         var list = new List<PluginSettingDescriptor>
         {

@@ -124,21 +124,33 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private static string NameOf(AudioSessionInfo session, AppIdentity identity) =>
         identity.FriendlyName ?? session.DisplayName;
 
+    /// <summary>
+    /// Re-reads the sessions. Runs on the refresh timer's thread-pool thread, where an exception
+    /// would be unhandled and take the host down, so a failed read keeps the tiles as they are and
+    /// is logged.
+    /// </summary>
     private void Reload(bool announce = true)
     {
-        _sessions = _audio.GetSessions(null);
-
-        // An app that stopped playing must not keep the selection, or the rotary would
-        // silently control nothing.
-        if (_selectedAppId != null &&
-            _sessions.All(s => !string.Equals(s.AppId, _selectedAppId, StringComparison.Ordinal)))
+        try
         {
-            _selectedAppId = null;
+            _sessions = _audio.GetSessions(null);
+
+            // An app that stopped playing must not keep the selection, or the rotary would
+            // silently control nothing.
+            if (_selectedAppId != null &&
+                _sessions.All(s => !string.Equals(s.AppId, _selectedAppId, StringComparison.Ordinal)))
+            {
+                _selectedAppId = null;
+            }
+
+            _selectedAppId ??= _sessions.Count > 0 ? _sessions[0].AppId : null;
+
+            RaiseIfChanged(announce);
         }
-
-        _selectedAppId ??= _sessions.Count > 0 ? _sessions[0].AppId : null;
-
-        RaiseIfChanged(announce);
+        catch (Exception ex)
+        {
+            _host.Logger?.Warn($"Audio mixer: refresh failed: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -179,25 +191,37 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         return builder.ToString();
     }
 
-    private void Adjust(float delta)
+    private void Adjust(float delta) => Change("adjust", appId =>
     {
-        if (_selectedAppId == null) return;
+        float? current = _audio.GetSessionVolume(null, appId);
+        if (current != null)
+            _audio.SetSessionVolume(null, appId, Math.Clamp(current.Value + delta, 0f, 1f));
+    });
 
-        float? current = _audio.GetSessionVolume(null, _selectedAppId);
-        if (current == null) return;
-
-        _audio.SetSessionVolume(null, _selectedAppId, Math.Clamp(current.Value + delta, 0f, 1f));
-        Reload();
-    }
-
-    private void ToggleMute()
+    private void ToggleMute() => Change("toggle mute", appId =>
     {
-        if (_selectedAppId == null) return;
+        bool? muted = _audio.GetSessionMute(null, appId);
+        if (muted != null)
+            _audio.SetSessionMute(null, appId, !muted.Value);
+    });
 
-        bool? muted = _audio.GetSessionMute(null, _selectedAppId);
-        if (muted == null) return;
+    /// <summary>Applies a rotary action to the selected app. An app that quit in between must
+    /// cost the action, not the host.</summary>
+    private void Change(string action, Action<string> apply)
+    {
+        string? appId = _selectedAppId;
+        if (appId == null) return;
 
-        _audio.SetSessionMute(null, _selectedAppId, !muted.Value);
+        try
+        {
+            apply(appId);
+        }
+        catch (Exception ex)
+        {
+            _host.Logger?.Warn($"Audio mixer: could not {action} '{appId}': {ex.Message}");
+            return;
+        }
+
         Reload();
     }
 }

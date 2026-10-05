@@ -143,10 +143,22 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
         Reload();
     }
 
+    /// <summary>
+    /// Re-reads the devices. Runs on the refresh timer's thread-pool thread, where an exception —
+    /// a COM error while the Windows audio service restarts, say — would be unhandled and take
+    /// the host down, so a failed read keeps the tiles as they are and is logged.
+    /// </summary>
     private void Reload(bool announce = true)
     {
-        _rows = ReadRows();
-        RaiseIfChanged(announce);
+        try
+        {
+            _rows = ReadRows();
+            RaiseIfChanged(announce);
+        }
+        catch (Exception ex)
+        {
+            _host.Logger?.Warn($"Audio devices: refresh failed: {ex.Message}");
+        }
     }
 
     /// <summary>

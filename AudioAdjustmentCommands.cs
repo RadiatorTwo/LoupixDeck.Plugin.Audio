@@ -28,23 +28,22 @@ internal sealed class AudioVolumeCommand(IAudioService audio) : IAdjustmentComma
 
     public ButtonTargets SupportedTargets => ButtonTargets.RotaryEncoder;
 
-    public Task ApplyAdjustment(CommandContext ctx, int ticks)
+    public Task ApplyAdjustment(CommandContext ctx, int ticks) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
         string? id = AudioDeviceParameter.ResolveDeviceId(ctx, audio);
-        if (id == null) return Task.CompletedTask;
+        if (id == null) return;
 
         // ticks carries the sign and the count, so one call covers a fast turn that the old
         // per-detent commands would have run several times.
         float next = Math.Clamp(audio.GetVolume(id) + (ticks * AudioDeviceParameter.ResolveStepScalar(ctx)), 0f, 1f);
         audio.SetVolume(id, next);
         AudioDeviceParameter.ShowOverlay(ctx, AudioDeviceParameter.FormatVolume(next));
-        return Task.CompletedTask;
-    }
+    });
 
-    public Task ApplyReset(CommandContext ctx)
+    public Task ApplyReset(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
         string? id = AudioDeviceParameter.ResolveDeviceId(ctx, audio);
-        if (id == null) return Task.CompletedTask;
+        if (id == null) return;
 
         // Mute is what the knob press did before this command existed, and it is the one
         // "reset" a volume has that a user would expect from a press.
@@ -52,8 +51,7 @@ internal sealed class AudioVolumeCommand(IAudioService audio) : IAdjustmentComma
         audio.SetMute(id, muted);
         AudioDeviceParameter.ShowOverlay(ctx,
             muted ? "🔇" : $"🔊 {AudioDeviceParameter.FormatVolume(audio.GetVolume(id))}");
-        return Task.CompletedTask;
-    }
+    });
 
     /// <summary>Off a dial — a macro, the CLI — the command acts as the press does.</summary>
     public Task Execute(CommandContext ctx) => ApplyReset(ctx);
@@ -99,41 +97,39 @@ internal sealed class AudioAppVolumeCommand(IAudioService audio) : IAdjustmentCo
 
     public ButtonTargets SupportedTargets => ButtonTargets.RotaryEncoder;
 
-    public Task ApplyAdjustment(CommandContext ctx, int ticks)
+    public Task ApplyAdjustment(CommandContext ctx, int ticks) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
         string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
-        if (appId == null) return Task.CompletedTask;
+        if (appId == null) return;
 
         float? current = audio.GetSessionVolume(null, appId);
         if (current == null)
         {
             AudioAppParameter.ReportNoSession(ctx, appId);
-            return Task.CompletedTask;
+            return;
         }
 
         float step = Math.Abs(AudioAppParameter.ResolveInt(ctx, AudioAppParameter.DefaultStepPercent)) / 100f;
         float next = Math.Clamp(current.Value + (ticks * step), 0f, 1f);
         audio.SetSessionVolume(null, appId, next);
         AudioDeviceParameter.ShowOverlay(ctx, $"{appId} {AudioDeviceParameter.FormatVolume(next)}");
-        return Task.CompletedTask;
-    }
+    });
 
-    public Task ApplyReset(CommandContext ctx)
+    public Task ApplyReset(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
         string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
-        if (appId == null) return Task.CompletedTask;
+        if (appId == null) return;
 
         bool? muted = audio.GetSessionMute(null, appId);
         if (muted == null)
         {
             AudioAppParameter.ReportNoSession(ctx, appId);
-            return Task.CompletedTask;
+            return;
         }
 
         audio.SetSessionMute(null, appId, !muted.Value);
         AudioDeviceParameter.ShowOverlay(ctx, !muted.Value ? "🔇" : $"🔊 {appId}");
-        return Task.CompletedTask;
-    }
+    });
 
     /// <inheritdoc cref="AudioVolumeCommand.Execute"/>
     public Task Execute(CommandContext ctx) => ApplyReset(ctx);

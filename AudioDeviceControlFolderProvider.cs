@@ -48,8 +48,12 @@ public sealed class AudioDeviceControlFolderProvider : FolderProviderBase
 
     public override void OnEnter()
     {
-        _currentVolume = _audio.GetVolume(_endpoint.Id);
-        _currentMute = _audio.GetMute(_endpoint.Id);
+        // An endpoint that vanished since the parent folder was built must not take the host down.
+        Try("read", () =>
+        {
+            _currentVolume = _audio.GetVolume(_endpoint.Id);
+            _currentMute = _audio.GetMute(_endpoint.Id);
+        });
 
         _subscription = _audio.SubscribeVolumeChanges(_endpoint.Id, (vol, muted) =>
         {
@@ -104,7 +108,7 @@ public sealed class AudioDeviceControlFolderProvider : FolderProviderBase
                 TextSize = 16,
                 OnPress = () =>
                 {
-                    if (!IsCurrentDefault()) _audio.SetDefaultEndpoint(_endpoint.Id);
+                    Try("set default", () => { if (!IsCurrentDefault()) _audio.SetDefaultEndpoint(_endpoint.Id); });
                     RaiseEntriesChanged();
                     return Task.CompletedTask;
                 }
@@ -123,13 +127,19 @@ public sealed class AudioDeviceControlFolderProvider : FolderProviderBase
     private void AdjustVolume(float delta)
     {
         var next = Math.Clamp(_currentVolume + delta, 0f, 1f);
-        _audio.SetVolume(_endpoint.Id, next);
+        Try("set volume", () => _audio.SetVolume(_endpoint.Id, next));
         // Don't optimistically update — the volume notification callback refreshes the UI.
     }
 
     private void ToggleMute()
     {
-        _audio.SetMute(_endpoint.Id, !_currentMute);
+        Try("toggle mute", () => _audio.SetMute(_endpoint.Id, !_currentMute));
         // Notification callback will refresh.
+    }
+
+    private void Try(string action, Action body)
+    {
+        try { body(); }
+        catch (Exception ex) { _host.Logger?.Warn($"Audio device '{_endpoint.FriendlyName}': could not {action}: {ex.Message}"); }
     }
 }
