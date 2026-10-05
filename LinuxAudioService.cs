@@ -76,10 +76,22 @@ public sealed class LinuxAudioService : IAudioService
         var defaultNoun = kind == AudioEndpointKind.Render ? "sink" : "source";
 
         var defaultName = RunPactl($"get-default-{defaultNoun}").Trim();
-        var listOutput = RunPactl($"list {listNoun}");
 
-        return ParseEndpoints(listOutput, defaultName, kind);
+        // A pactl call that failed or timed out (a stuck PulseAudio socket, say) reads as "no
+        // devices", which would empty every menu and folder for one refresh. Keep the last list.
+        if (!TryRunPactl(out string listOutput, "list", listNoun))
+        {
+            lock (_lastEndpointsLock)
+                return _lastEndpoints.TryGetValue(kind, out IReadOnlyList<AudioEndpointInfo>? last) ? last : [];
+        }
+
+        IReadOnlyList<AudioEndpointInfo> endpoints = ParseEndpoints(listOutput, defaultName, kind);
+        lock (_lastEndpointsLock) _lastEndpoints[kind] = endpoints;
+        return endpoints;
     }
+
+    private readonly Lock _lastEndpointsLock = new();
+    private readonly Dictionary<AudioEndpointKind, IReadOnlyList<AudioEndpointInfo>> _lastEndpoints = [];
 
     public string? GetDefaultEndpointId(AudioEndpointKind kind)
     {
@@ -99,7 +111,7 @@ public sealed class LinuxAudioService : IAudioService
         if (!IsSupported) return 0f;
         var (kind, name) = SplitId(endpointId);
         var noun = kind == AudioEndpointKind.Render ? "sink" : "source";
-        var output = RunPactl($"get-{noun}-volume \"{name}\"");
+        var output = RunPactl($"get-{noun}-volume", name);
         // e.g. "Volume: front-left: 45875 / 70% / -9.62 dB, front-right: 45875 / 70% ..."
         var m = Regex.Match(output, @"(\d+)%");
         return m.Success
@@ -113,7 +125,7 @@ public sealed class LinuxAudioService : IAudioService
         var (kind, name) = SplitId(endpointId);
         var noun = kind == AudioEndpointKind.Render ? "sink" : "source";
         var pct = (int)Math.Round(Math.Clamp(scalar01, 0f, 1f) * 100f);
-        RunPactl($"set-{noun}-volume \"{name}\" {pct.ToString(CultureInfo.InvariantCulture)}%");
+        RunPactl($"set-{noun}-volume", name, $"{pct.ToString(CultureInfo.InvariantCulture)}%");
     }
 
     public bool GetMute(string endpointId)
@@ -121,7 +133,7 @@ public sealed class LinuxAudioService : IAudioService
         if (!IsSupported) return false;
         var (kind, name) = SplitId(endpointId);
         var noun = kind == AudioEndpointKind.Render ? "sink" : "source";
-        var output = RunPactl($"get-{noun}-mute \"{name}\"").Trim();
+        var output = RunPactl($"get-{noun}-mute", name).Trim();
         // "Mute: yes" / "Mute: no"
         return output.EndsWith("yes", StringComparison.OrdinalIgnoreCase);
     }
@@ -131,7 +143,7 @@ public sealed class LinuxAudioService : IAudioService
         if (!IsSupported) return;
         var (kind, name) = SplitId(endpointId);
         var noun = kind == AudioEndpointKind.Render ? "sink" : "source";
-        RunPactl($"set-{noun}-mute \"{name}\" {(muted ? "1" : "0")}");
+        RunPactl($"set-{noun}-mute", name, muted ? "1" : "0");
     }
 
     public IDisposable SubscribeVolumeChanges(string endpointId, Action<float, bool> onChange)
@@ -260,7 +272,7 @@ public sealed class LinuxAudioService : IAudioService
         if (!IsSupported) return [];
 
         Dictionary<string, AudioSessionInfo> byApp = new(StringComparer.Ordinal);
-        foreach (SinkInput input in ParseSinkInputs(RunPactl("list sink-inputs")))
+        foreach (SinkInput input in ParseSinkInputs(RunPactl("list", "sink-inputs")))
         {
             if (input.AppId.Length == 0) continue;
 
@@ -289,7 +301,7 @@ public sealed class LinuxAudioService : IAudioService
         if (!IsSupported) return null;
 
         float? result = null;
-        foreach (SinkInput input in ParseSinkInputs(RunPactl("list sink-inputs")))
+        foreach (SinkInput input in ParseSinkInputs(RunPactl("list", "sink-inputs")))
         {
             if (!string.Equals(input.AppId, appId, StringComparison.Ordinal)) continue;
             result = result is { } current ? Math.Max(current, input.Volume) : input.Volume;
@@ -302,10 +314,11 @@ public sealed class LinuxAudioService : IAudioService
         if (!IsSupported) return;
 
         int percent = (int)Math.Round(Math.Clamp(scalar01, 0f, 1f) * 100f);
-        foreach (SinkInput input in ParseSinkInputs(RunPactl("list sink-inputs")))
+        foreach (SinkInput input in ParseSinkInputs(RunPactl("list", "sink-inputs")))
         {
             if (string.Equals(input.AppId, appId, StringComparison.Ordinal))
-                RunPactl($"set-sink-input-volume {input.Index.ToString(CultureInfo.InvariantCulture)} {percent.ToString(CultureInfo.InvariantCulture)}%");
+                RunPactl("set-sink-input-volume", input.Index.ToString(CultureInfo.InvariantCulture),
+                    $"{percent.ToString(CultureInfo.InvariantCulture)}%");
         }
     }
 
@@ -314,7 +327,7 @@ public sealed class LinuxAudioService : IAudioService
         if (!IsSupported) return null;
 
         bool? result = null;
-        foreach (SinkInput input in ParseSinkInputs(RunPactl("list sink-inputs")))
+        foreach (SinkInput input in ParseSinkInputs(RunPactl("list", "sink-inputs")))
         {
             if (!string.Equals(input.AppId, appId, StringComparison.Ordinal)) continue;
             result = result is { } current ? current && input.Muted : input.Muted;
@@ -326,10 +339,10 @@ public sealed class LinuxAudioService : IAudioService
     {
         if (!IsSupported) return;
 
-        foreach (SinkInput input in ParseSinkInputs(RunPactl("list sink-inputs")))
+        foreach (SinkInput input in ParseSinkInputs(RunPactl("list", "sink-inputs")))
         {
             if (string.Equals(input.AppId, appId, StringComparison.Ordinal))
-                RunPactl($"set-sink-input-mute {input.Index.ToString(CultureInfo.InvariantCulture)} {(muted ? "1" : "0")}");
+                RunPactl("set-sink-input-mute", input.Index.ToString(CultureInfo.InvariantCulture), muted ? "1" : "0");
         }
     }
 
@@ -361,19 +374,19 @@ public sealed class LinuxAudioService : IAudioService
         if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"))) return null;
         if (!HasXprop.Value) return null;
 
-        Match window = Regex.Match(RunTool("xprop", "-root _NET_ACTIVE_WINDOW"), @"window id # (0x[0-9a-fA-F]+)");
+        Match window = Regex.Match(RunTool("xprop", "-root", "_NET_ACTIVE_WINDOW"), @"window id # (0x[0-9a-fA-F]+)");
         if (!window.Success) return null;
 
         string windowId = window.Groups[1].Value;
         // 0x0 is the "no active window" answer, not a window to query.
         if (string.Equals(windowId, "0x0", StringComparison.OrdinalIgnoreCase)) return null;
 
-        Match pidMatch = Regex.Match(RunTool("xprop", $"-id {windowId} _NET_WM_PID"), @"_NET_WM_PID\(CARDINAL\) = (\d+)");
+        Match pidMatch = Regex.Match(RunTool("xprop", "-id", windowId, "_NET_WM_PID"), @"_NET_WM_PID\(CARDINAL\) = (\d+)");
         if (!pidMatch.Success) return null;
         if (!int.TryParse(pidMatch.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int pid))
             return null;
 
-        IReadOnlyList<SinkInput> inputs = ParseSinkInputs(RunPactl("list sink-inputs"));
+        IReadOnlyList<SinkInput> inputs = ParseSinkInputs(RunPactl("list", "sink-inputs"));
 
         // The stream's own PID is the exact answer whenever the window's process (or one of its
         // ancestors, which is how a browser tab's window maps onto the process that plays the
@@ -438,14 +451,14 @@ public sealed class LinuxAudioService : IAudioService
 
         (AudioEndpointKind kind, string name) = SplitId(endpointId);
         string noun = kind == AudioEndpointKind.Render ? "sink" : "source";
-        RunPactl($"set-default-{noun} \"{name}\"");
+        RunPactl($"set-default-{noun}", name);
 
         // pactl leaves already-running streams on the old device, which reads as "nothing
         // happened" to the user. Move them across too.
         if (kind == AudioEndpointKind.Render)
         {
-            foreach (SinkInput input in ParseSinkInputs(RunPactl("list sink-inputs")))
-                RunPactl($"move-sink-input {input.Index.ToString(CultureInfo.InvariantCulture)} \"{name}\"");
+            foreach (SinkInput input in ParseSinkInputs(RunPactl("list", "sink-inputs")))
+                RunPactl("move-sink-input", input.Index.ToString(CultureInfo.InvariantCulture), name);
         }
 
         string current = RunPactl($"get-default-{noun}").Trim();
@@ -622,26 +635,57 @@ public sealed class LinuxAudioService : IAudioService
         return result;
     }
 
+    /// <summary>How long a one-shot tool call may take before it is killed.</summary>
+    private const int ToolTimeoutMs = 2000;
+
     /// <summary>Runs a tool and returns its stdout, or an empty string when it cannot run.</summary>
-    private static string RunTool(string fileName, string args)
+    private static string RunTool(string fileName, params string[] args)
     {
+        ProcessStartInfo psi = new(fileName);
+        foreach (string arg in args) psi.ArgumentList.Add(arg);
+        TryRun(psi, out string stdout);
+        return stdout;
+    }
+
+    /// <summary>
+    /// Runs a process to completion and hands back its stdout. Returns false when it could not
+    /// start, ran longer than <see cref="ToolTimeoutMs"/> (it is killed then) or exited non-zero.
+    /// <para>
+    /// stdout and stderr are drained asynchronously while the timeout runs. Reading stdout to the end
+    /// first would block until the process exits, so a stuck PulseAudio or PipeWire socket would hang
+    /// the caller for good; and an unread stderr can fill its pipe and stall the process itself.
+    /// </para>
+    /// </summary>
+    private static bool TryRun(ProcessStartInfo psi, out string stdout)
+    {
+        stdout = string.Empty;
+        psi.RedirectStandardOutput = true;
+        psi.RedirectStandardError = true;
+        psi.UseShellExecute = false;
+        psi.CreateNoWindow = true;
+
         try
         {
-            ProcessStartInfo psi = new(fileName, args)
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
             using Process proc = Process.Start(psi)!;
-            string stdout = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit(2000);
-            return stdout;
+            Task<string> output = proc.StandardOutput.ReadToEndAsync();
+            Task<string> error = proc.StandardError.ReadToEndAsync();
+
+            if (!proc.WaitForExit(ToolTimeoutMs))
+            {
+                try { proc.Kill(entireProcessTree: true); }
+                catch { /* exited in the meantime */ }
+                return false;
+            }
+
+            // Both pipes close with the process, so the reads finish right after it.
+            if (!Task.WaitAll([output, error], ToolTimeoutMs)) return false;
+
+            stdout = output.Result;
+            return proc.ExitCode == 0;
         }
         catch
         {
-            return string.Empty;
+            return false;
         }
     }
 
@@ -651,33 +695,33 @@ public sealed class LinuxAudioService : IAudioService
     /// on sink"): on a German system mute reads back as "Stumm: ja", so it always parsed as
     /// unmuted and a toggle could never unmute (LoupixDeck#297).
     /// </summary>
-    private static ProcessStartInfo PactlStartInfo(string args)
+    private static ProcessStartInfo PactlStartInfo(params string[] args)
     {
-        ProcessStartInfo psi = new("pactl", args)
+        // ArgumentList passes every value as one argument as-is, so a device name with spaces or
+        // quotes cannot break the command line the way an interpolated string could.
+        ProcessStartInfo psi = new("pactl")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        foreach (string arg in args) psi.ArgumentList.Add(arg);
         psi.Environment["LC_ALL"] = "C";
         return psi;
     }
 
-    private static string RunPactl(string args)
+    /// <summary>Runs pactl and returns its stdout; empty when it failed or timed out.</summary>
+    private static string RunPactl(params string[] args)
     {
-        try
-        {
-            using var proc = Process.Start(PactlStartInfo(args))!;
-            var stdout = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit(2000);
-            return stdout;
-        }
-        catch
-        {
-            return string.Empty;
-        }
+        TryRun(PactlStartInfo(args), out string stdout);
+        return stdout;
     }
+
+    /// <summary>Runs pactl and reports whether it succeeded, for callers that must tell a failed
+    /// call from an empty answer.</summary>
+    private static bool TryRunPactl(out string stdout, params string[] args) =>
+        TryRun(PactlStartInfo(args), out stdout);
 
     /// <summary>Probes whether a CLI tool is installed and runnable.</summary>
     private static bool DetectTool(string fileName, string arguments)
@@ -692,7 +736,14 @@ public sealed class LinuxAudioService : IAudioService
                 CreateNoWindow = true
             };
             using var p = Process.Start(psi)!;
-            p.WaitForExit(1000);
+            // Nobody reads the redirected pipes, but a --version answer fits easily into them.
+            if (!p.WaitForExit(1000))
+            {
+                try { p.Kill(entireProcessTree: true); }
+                catch { /* exited in the meantime */ }
+                return false;
+            }
+
             return p.ExitCode == 0;
         }
         catch { return false; }
