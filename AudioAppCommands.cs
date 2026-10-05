@@ -76,6 +76,30 @@ internal static class AudioAppParameter
         // The app id is a value, so only the fixed part is a key.
         AudioDeviceParameter.ShowOverlay(ctx, string.Format(ctx.Host.Tr("{0}: no audio"), appId));
 
+    /// <summary>App id plus the mute state to set, muting by default.</summary>
+    public static IReadOnlyList<CommandParameter> SetMuteParameters { get; } =
+    [
+        new CommandParameter(AppIdName, typeof(string)),
+        new CommandParameter(AudioDeviceParameter.MutedName, typeof(bool)) { DefaultValue = "True" }
+    ];
+
+    /// <summary>Sets the mute flag of every session of the bound app. Idempotent, unlike the toggle.</summary>
+    public static Task SetMute(CommandContext ctx, IAudioService audio, string commandName, bool muted) =>
+        AudioDeviceParameter.Guard(ctx, commandName, () =>
+        {
+            string? appId = ResolveAppIdOrReport(ctx, audio);
+            if (appId == null) return;
+
+            if (audio.GetSessionMute(null, appId) == null)
+            {
+                ReportNoSession(ctx, appId);
+                return;
+            }
+
+            audio.SetSessionMute(null, appId, muted);
+            AudioDeviceParameter.ShowOverlay(ctx, muted ? "🔇" : $"🔊 {appId}");
+        });
+
     public static int ResolveInt(CommandContext ctx, int fallback)
     {
         string[]? p = ctx.Parameters;
@@ -195,6 +219,72 @@ internal sealed class AudioAppMuteToggleCommand(IAudioService audio) : IPluginCo
         audio.SetSessionMute(null, appId, !muted.Value);
         AudioDeviceParameter.ShowOverlay(ctx, !muted.Value ? "🔇" : $"🔊 {appId}");
     });
+}
+
+internal sealed class AudioAppMuteCommand(IAudioService audio) : IPluginCommand
+{
+    public CommandDescriptor Descriptor { get; } = new()
+    {
+        CommandName = "Audio.AppMute",
+        DisplayName = "Audio: App Mute",
+        Group = "Audio",
+        Icon = AudioButtonLayouts.Mute,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Mute, "App Mute"),
+        Description = "Mute one application",
+        HiddenFromMenu = true,
+        ParameterTemplate = "({appId})",
+        Parameters = AudioAppParameter.AppIdParameters
+    };
+
+    public ButtonTargets SupportedTargets =>
+        ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
+
+    public Task Execute(CommandContext ctx) =>
+        AudioAppParameter.SetMute(ctx, audio, Descriptor.CommandName, true);
+}
+
+internal sealed class AudioAppUnmuteCommand(IAudioService audio) : IPluginCommand
+{
+    public CommandDescriptor Descriptor { get; } = new()
+    {
+        CommandName = "Audio.AppUnmute",
+        DisplayName = "Audio: App Unmute",
+        Group = "Audio",
+        Icon = AudioButtonLayouts.Unmute,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Unmute, "App Unmute"),
+        Description = "Unmute one application",
+        HiddenFromMenu = true,
+        ParameterTemplate = "({appId})",
+        Parameters = AudioAppParameter.AppIdParameters
+    };
+
+    public ButtonTargets SupportedTargets =>
+        ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
+
+    public Task Execute(CommandContext ctx) =>
+        AudioAppParameter.SetMute(ctx, audio, Descriptor.CommandName, false);
+}
+
+internal sealed class AudioAppSetMuteCommand(IAudioService audio) : IPluginCommand
+{
+    public CommandDescriptor Descriptor { get; } = new()
+    {
+        CommandName = "Audio.AppSetMute",
+        DisplayName = "Audio: Set App Mute",
+        Group = "Audio",
+        Icon = AudioButtonLayouts.Mute,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Mute, "Set App Mute"),
+        Description = "Mute or unmute one application",
+        HiddenFromMenu = true,
+        ParameterTemplate = "({appId},{muted})",
+        Parameters = AudioAppParameter.SetMuteParameters
+    };
+
+    public ButtonTargets SupportedTargets =>
+        ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
+
+    public Task Execute(CommandContext ctx) =>
+        AudioAppParameter.SetMute(ctx, audio, Descriptor.CommandName, AudioDeviceParameter.ResolveMuted(ctx));
 }
 
 internal sealed class AudioAppSetVolumeCommand(IAudioService audio) : IPluginCommand

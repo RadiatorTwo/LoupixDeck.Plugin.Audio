@@ -64,9 +64,13 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
         /// </summary>
         public string? DeviceId;
 
-        /// <summary>The dial follows the default device, so <see cref="DeviceId"/> is re-resolved
-        /// when the backend reports a change instead of being fixed for the session.</summary>
-        public bool FollowsDefault;
+        /// <summary>The default-device sentinel the dial is bound to (<c>@default</c> or
+        /// <c>@defaultInput</c>), or null for a fixed endpoint. A bar that follows a default has
+        /// <see cref="DeviceId"/> re-resolved when the backend reports a change instead of fixing
+        /// it for the session.</summary>
+        public string? DefaultSentinel;
+
+        public bool FollowsDefault => DefaultSentinel != null;
         public float Volume;
         public bool Muted;
         public IDisposable? Subscription;
@@ -149,7 +153,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
             var bar = new Bar
             {
                 DeviceId = deviceId,
-                FollowsDefault = AudioDeviceParameter.IsDefaultSentinel(boundId),
+                DefaultSentinel = AudioDeviceParameter.IsDefaultSentinel(boundId) ? boundId : null,
                 Label = rotary.Label?.Trim() ?? string.Empty,
                 Fallback = deviceId != null && names.TryGetValue(deviceId, out var friendly)
                     ? friendly : string.Empty,
@@ -263,7 +267,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
         try
         {
             if (fresh) AudioDeviceParameter.InvalidateDefaultEndpoint();
-            current = AudioDeviceParameter.ResolveEndpointId(AudioDeviceParameter.DefaultDeviceId, _audio);
+            current = AudioDeviceParameter.ResolveEndpointId(bar.DefaultSentinel, _audio);
         }
         catch { return false; }
 

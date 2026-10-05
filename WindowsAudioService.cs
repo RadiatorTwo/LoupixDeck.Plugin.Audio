@@ -131,31 +131,25 @@ public sealed partial class WindowsAudioService : IAudioService, IDisposable
         }
     }
 
-    public float GetVolume(string endpointId)
-    {
-        using var dev = GetDevice(endpointId);
-        return dev?.AudioEndpointVolume?.MasterVolumeLevelScalar ?? 0f;
-    }
+    public float GetVolume(string endpointId) =>
+        WithEndpointVolume(endpointId, volume => volume.MasterVolumeLevelScalar, 0f);
 
-    public void SetVolume(string endpointId, float scalar01)
-    {
-        using var dev = GetDevice(endpointId);
-        if (dev?.AudioEndpointVolume == null) return;
-        dev.AudioEndpointVolume.MasterVolumeLevelScalar = Math.Clamp(scalar01, 0f, 1f);
-    }
+    public void SetVolume(string endpointId, float scalar01) =>
+        WithEndpointVolume(endpointId, volume =>
+        {
+            volume.MasterVolumeLevelScalar = Math.Clamp(scalar01, 0f, 1f);
+            return true;
+        }, false);
 
-    public bool GetMute(string endpointId)
-    {
-        using var dev = GetDevice(endpointId);
-        return dev?.AudioEndpointVolume?.Mute ?? false;
-    }
+    public bool GetMute(string endpointId) =>
+        WithEndpointVolume(endpointId, volume => volume.Mute, false);
 
-    public void SetMute(string endpointId, bool muted)
-    {
-        using var dev = GetDevice(endpointId);
-        if (dev?.AudioEndpointVolume == null) return;
-        dev.AudioEndpointVolume.Mute = muted;
-    }
+    public void SetMute(string endpointId, bool muted) =>
+        WithEndpointVolume(endpointId, volume =>
+        {
+            volume.Mute = muted;
+            return true;
+        }, false);
 
     public bool SetDefaultEndpoint(string endpointId)
     {

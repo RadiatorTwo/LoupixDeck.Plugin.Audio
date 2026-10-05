@@ -40,21 +40,30 @@ internal sealed class AudioCurrentOutputCommand(
 
     public ButtonTargets SupportedTargets => ButtonTargets.TouchButton;
 
-    public TimeSpan UpdateInterval => TimeSpan.FromSeconds(2);
+    public TimeSpan UpdateInterval => LabelLifetime;
 
-    public string GetText(CommandContext ctx)
+    public string GetText(CommandContext ctx) => Label(ctx, audio, aliasStore);
+
+    /// <summary>How long a resolved label is reused.</summary>
+    private static readonly TimeSpan LabelLifetime = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// The name of the current default output, as every button that shows it reads it. Shared with
+    /// <see cref="AudioCycleOutputCommand"/>, which shows the same thing.
+    /// </summary>
+    internal static string Label(CommandContext ctx, IAudioService audio, AudioAliasStore aliasStore)
     {
         string label;
         lock (CacheLock)
         {
             long now = Stopwatch.GetTimestamp();
-            if (_cachedLabel != null && Stopwatch.GetElapsedTime(_cachedAtTimestamp, now) < UpdateInterval)
+            if (_cachedLabel != null && Stopwatch.GetElapsedTime(_cachedAtTimestamp, now) < LabelLifetime)
             {
                 label = _cachedLabel;
             }
             else
             {
-                label = ResolveLabel();
+                label = ResolveLabel(audio, aliasStore);
                 _cachedLabel = label;
                 _cachedAtTimestamp = now;
             }
@@ -65,7 +74,13 @@ internal sealed class AudioCurrentOutputCommand(
         return label == NoDeviceLabel ? ctx.Host.Tr(NoDeviceLabel) : label;
     }
 
-    private string ResolveLabel()
+    /// <summary>Forgets the cached label, so a button refreshed right after a switch shows the new device.</summary>
+    internal static void InvalidateLabel()
+    {
+        lock (CacheLock) _cachedLabel = null;
+    }
+
+    private static string ResolveLabel(IAudioService audio, AudioAliasStore aliasStore)
     {
         foreach (AudioEndpointInfo ep in audio.GetEndpoints(AudioEndpointKind.Render))
         {

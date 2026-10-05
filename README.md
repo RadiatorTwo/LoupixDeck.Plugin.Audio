@@ -26,9 +26,39 @@ reads "No device" when none is set.
 It takes the same five tile parameters as `Audio.OutputDevices` (see below), which
 set the look of the picker it opens.
 
+`Audio.CycleOutput` — make the next output device the system default, so one
+button switches between speakers and headset. The button shows the device in
+use; on a dial the new name flashes next to it. Without a device list it walks
+the devices the output picker shows (the ones not hidden in the settings). The
+`devices` parameter limits it to a list, in that order, separated by `|`, for
+example `Speakers|Headset`. An entry is a device's alias, its name or its id;
+when nothing matches exactly, a part of the alias or name does. Windows device
+names such as `Speakers (Realtek(R) Audio)` contain a closing parenthesis, which
+a binding cannot carry, so name that device by a part (`Realtek`) or give it an
+alias. A device in the list that is not connected is skipped.
+
 `Audio.VolumeUp` / `Audio.VolumeDown` / `Audio.MuteToggle` — act on one
 device, assigned from the command menu (Audio → Output/Input Devices). The
 volume step is editable per assignment.
+
+On a touch key `Audio.MuteToggle` shows its state live when the `showState`
+parameter is on: a speaker or microphone in white with
+the level below it, crossed out in red with "Muted" while muted. A newly
+assigned toggle has it on. The key is drawn on a transparent background, so the
+wallpaper shows through. A toggle assigned before the parameter existed keeps
+its static icon; assign it again to get the live look.
+
+`Audio.Mute` / `Audio.Unmute` / `Audio.SetMute` — set a device's mute state
+instead of toggling it, so running the command twice does the same thing as
+running it once. That is what a macro or multi-action needs. `Audio.SetMute`
+takes the state (`muted`, on by default) as a parameter. The application
+counterparts are `Audio.AppMute` / `Audio.AppUnmute` / `Audio.AppSetMute`.
+
+The first entry under Output Devices and Input Devices, "Default Output" and
+"Default Input", follows whatever device is the system default at the moment
+the command runs (the binding stores `@default` or `@defaultInput` instead of a
+device id). "Mic Mute" at the top of the menu is a mute toggle bound to the
+default input, so it keeps working when the microphone changes.
 
 `Audio.Mixer` — open a per-application mixer on the touch screen. Tap a tile
 to select an application, the first rotary then adjusts it and its press mutes.
@@ -90,6 +120,18 @@ Windows, and on Linux for X11 and XWayland windows (resolved with `xprop`, which
 must be installed). A native Wayland window carries no `_NET_WM_PID`, so under a
 Wayland session the dial stays empty for applications that do not go through
 XWayland.
+
+`Audio.VolumeTile` / `Audio.AppVolumeTile` — a touch key that shows one device's
+or one application's level and mute state live, drawn like a mixer tile (a muted
+target is greyed out and struck through); pressing it toggles mute. Assigned from
+the command menu: "Volume Tile" under a device, and "Mute Toggle" under an
+application when the menu is opened for a touch key. On a button or dial an
+application's "Mute Toggle" is still `Audio.AppMuteToggle`, which keeps its static
+icon. It takes the
+target plus the tile parameters `layout`, `font`, `transparent` and `outlined`
+described below; a name that does not fit is cut, as a single key does not scroll.
+An application that is not playing is shown greyed out at 0 %. The existing mute
+and volume buttons keep their look; the tile is a separate command to pick.
 
 `Audio.SetVolume` / `Audio.AppSetVolume` — set a device or an application to a
 fixed level in percent, editable per assignment.

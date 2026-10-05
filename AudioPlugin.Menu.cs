@@ -21,16 +21,30 @@ public sealed partial class AudioPlugin
         [
             new MenuNode { Name = "Select Output Device", CommandName = "Audio.OutputDevices" },
             new MenuNode { Name = "Current Output Device", CommandName = "Audio.CurrentOutput" },
+            new MenuNode { Name = "Cycle Output Device", CommandName = "Audio.CycleOutput" },
             new MenuNode { Name = "Select Input Device", CommandName = "Audio.InputDevices" },
             new MenuNode { Name = "Mixer", CommandName = "Audio.Mixer" },
+            // Bound to the default input rather than a fixed microphone, so the button keeps working
+            // when the microphone changes.
+            new MenuNode
+            {
+                Name = "Mic Mute",
+                CommandName = "Audio.MuteToggle",
+                Parameters = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [AudioDeviceParameter.DeviceIdName] = AudioDeviceParameter.DefaultInputDeviceId,
+                },
+            },
         ];
 
         if (outputs.Count > 0)
-            rootChildren.Add(DevicesCategory("Output Devices", outputs, includeGroup));
+            rootChildren.Add(DevicesCategory("Output Devices", "Default Output", AudioDeviceParameter.DefaultDeviceId,
+                outputs, includeGroup));
         if (inputs.Count > 0)
-            rootChildren.Add(DevicesCategory("Input Devices", inputs, includeGroup));
+            rootChildren.Add(DevicesCategory("Input Devices", "Default Input", AudioDeviceParameter.DefaultInputDeviceId,
+                inputs, includeGroup));
 
-        rootChildren.Add(ApplicationsCategory(includeGroup));
+        rootChildren.Add(ApplicationsCategory(includeGroup, target.HasFlag(ButtonTargets.TouchButton)));
         rootChildren.Add(SoundsCategory());
         // A sibling of the sound tree rather than a child of it: stopping must stay
         // reachable even when no sound folder is configured.
@@ -49,9 +63,9 @@ public sealed partial class AudioPlugin
     /// binding stores the process name, so it keeps working after that app restarts. The
     /// foreground entry is always offered because it needs no running session to be useful.
     /// </summary>
-    private MenuNode ApplicationsCategory(bool includeGroup)
+    private MenuNode ApplicationsCategory(bool includeGroup, bool touch)
     {
-        List<MenuNode> children = [AppNode("Foreground App", AudioAppParameter.ForegroundAppId, includeGroup)];
+        List<MenuNode> children = [AppNode("Foreground App", AudioAppParameter.ForegroundAppId, includeGroup, touch)];
 
         IReadOnlyList<AudioSessionInfo> sessions;
         try
@@ -66,12 +80,12 @@ public sealed partial class AudioPlugin
         }
 
         foreach (AudioSessionInfo session in sessions)
-            children.Add(AppNode(session.DisplayName, session.AppId, includeGroup));
+            children.Add(AppNode(session.DisplayName, session.AppId, includeGroup, touch));
 
         return new MenuNode { Name = "Applications", CommandName = string.Empty, Children = children };
     }
 
-    private MenuNode AppNode(string label, string appId, bool includeGroup)
+    private MenuNode AppNode(string label, string appId, bool includeGroup, bool touch)
     {
         Dictionary<string, string> AppParam() => new(StringComparer.Ordinal)
         {
@@ -98,7 +112,17 @@ public sealed partial class AudioPlugin
 
         children.Add(new MenuNode { Name = "Volume Down", CommandName = "Audio.AppVolumeDown", Parameters = AppParam() });
         children.Add(new MenuNode { Name = "Volume Up", CommandName = "Audio.AppVolumeUp", Parameters = AppParam() });
-        children.Add(new MenuNode { Name = "Mute", CommandName = "Audio.AppMuteToggle", Parameters = AppParam() });
+        // On a touch key the mute toggle is the tile, which shows level and mute state live. A button
+        // or dial cannot show it, so there the plain toggle stays.
+        children.Add(new MenuNode
+        {
+            Name = "Mute Toggle",
+            CommandName = touch ? "Audio.AppVolumeTile" : "Audio.AppMuteToggle",
+            Parameters = AppParam()
+        });
+        children.Add(new MenuNode { Name = "Mute", CommandName = "Audio.AppMute", Parameters = AppParam() });
+        children.Add(new MenuNode { Name = "Unmute", CommandName = "Audio.AppUnmute", Parameters = AppParam() });
+        children.Add(new MenuNode { Name = "Set Mute", CommandName = "Audio.AppSetMute", Parameters = AppParam() });
         children.Add(new MenuNode { Name = "Set Volume", CommandName = "Audio.AppSetVolume", Parameters = AppParam() });
 
         return new MenuNode { Name = label, CommandName = string.Empty, Children = children };
@@ -187,22 +211,29 @@ public sealed partial class AudioPlugin
         };
     }
 
-    private MenuNode DevicesCategory(string label, IReadOnlyList<AudioEndpointInfo> devices, bool includeGroup)
+    /// <summary>
+    /// One category per endpoint kind. The first entry follows whatever device is the default
+    /// (<paramref name="defaultSentinel"/>), the rest are bound to one fixed device each.
+    /// </summary>
+    private MenuNode DevicesCategory(string label, string defaultLabel, string defaultSentinel,
+        IReadOnlyList<AudioEndpointInfo> devices, bool includeGroup)
     {
-        var deviceNodes = devices.Select(ep => DeviceNode(ep, includeGroup)).ToList();
+        List<MenuNode> deviceNodes = [DeviceNode(defaultLabel, defaultSentinel, includeGroup, canBeDefault: false)];
+        deviceNodes.AddRange(devices.Select(ep => DeviceNode(_aliasStore!.Resolve(ep), ep.Id, includeGroup, canBeDefault: true)));
         return new MenuNode { Name = label, CommandName = string.Empty, Children = deviceNodes };
     }
 
     /// <summary>
     /// One folder per device. Inside it: the "Volume Control" rotary group (rotary
-    /// target only) followed by the individual Volume Down / Volume Up / Mute
-    /// commands, all bound to this device.
+    /// target only) followed by the individual volume and mute commands, all bound to
+    /// <paramref name="deviceId"/>. "Set as Default" is left out for the default-device
+    /// entry, where it would mean nothing.
     /// </summary>
-    private MenuNode DeviceNode(AudioEndpointInfo ep, bool includeGroup)
+    private static MenuNode DeviceNode(string name, string deviceId, bool includeGroup, bool canBeDefault)
     {
         Dictionary<string, string> DeviceParam() => new(StringComparer.Ordinal)
         {
-            [AudioDeviceParameter.DeviceIdName] = ep.Id,
+            [AudioDeviceParameter.DeviceIdName] = deviceId,
         };
 
         List<MenuNode> children = [];
@@ -225,13 +256,18 @@ public sealed partial class AudioPlugin
 
         children.Add(new MenuNode { Name = "Volume Down", CommandName = "Audio.VolumeDown", Parameters = DeviceParam() });
         children.Add(new MenuNode { Name = "Volume Up", CommandName = "Audio.VolumeUp", Parameters = DeviceParam() });
-        children.Add(new MenuNode { Name = "Mute", CommandName = "Audio.MuteToggle", Parameters = DeviceParam() });
+        children.Add(new MenuNode { Name = "Mute Toggle", CommandName = "Audio.MuteToggle", Parameters = DeviceParam() });
+        children.Add(new MenuNode { Name = "Mute", CommandName = "Audio.Mute", Parameters = DeviceParam() });
+        children.Add(new MenuNode { Name = "Unmute", CommandName = "Audio.Unmute", Parameters = DeviceParam() });
+        children.Add(new MenuNode { Name = "Set Mute", CommandName = "Audio.SetMute", Parameters = DeviceParam() });
         children.Add(new MenuNode { Name = "Set Volume", CommandName = "Audio.SetVolume", Parameters = DeviceParam() });
-        children.Add(new MenuNode { Name = "Set as Default", CommandName = "Audio.SetDefaultDevice", Parameters = DeviceParam() });
+        children.Add(new MenuNode { Name = "Volume Tile", CommandName = "Audio.VolumeTile", Parameters = DeviceParam() });
+        if (canBeDefault)
+            children.Add(new MenuNode { Name = "Set as Default", CommandName = "Audio.SetDefaultDevice", Parameters = DeviceParam() });
 
         return new MenuNode
         {
-            Name = _aliasStore!.Resolve(ep),
+            Name = name,
             CommandName = string.Empty,
             Children = children,
         };

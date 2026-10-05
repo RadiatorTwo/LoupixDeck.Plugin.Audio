@@ -73,12 +73,16 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
         [
             new AudioOutputFolderCommand(_audio, _aliasStore, _visibility),
             new AudioCurrentOutputCommand(_audio, _aliasStore, _visibility),
+            new AudioCycleOutputCommand(_audio, _aliasStore, _visibility),
             new AudioInputFolderCommand(_audio, _aliasStore, _visibility),
             new AudioVolumeCommand(_audio),
             new AudioAppVolumeCommand(_audio),
             new AudioVolumeUpCommand(_audio),
             new AudioVolumeDownCommand(_audio),
             new AudioMuteToggleCommand(_audio),
+            new AudioMuteCommand(_audio),
+            new AudioUnmuteCommand(_audio),
+            new AudioSetMuteCommand(_audio),
             new AudioPlaySoundCommand(_audio, _soundLibrary, _playbackDevices, host),
             new AudioStopSoundCommand(_audio, host),
             new AudioSetVolumeCommand(_audio),
@@ -86,8 +90,13 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
             new AudioAppVolumeUpCommand(_audio),
             new AudioAppVolumeDownCommand(_audio),
             new AudioAppMuteToggleCommand(_audio),
+            new AudioAppMuteCommand(_audio),
+            new AudioAppUnmuteCommand(_audio),
+            new AudioAppSetMuteCommand(_audio),
             new AudioAppSetVolumeCommand(_audio),
             new AudioMixerFolderCommand(_audio, _appIdentity),
+            new AudioVolumeTileCommand(_audio, _aliasStore),
+            new AudioAppVolumeTileCommand(_audio, _appIdentity),
         ];
 
         _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings, _aliasStore, host);

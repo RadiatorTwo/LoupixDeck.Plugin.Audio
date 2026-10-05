@@ -287,9 +287,11 @@ public sealed partial class WindowsAudioService
         }
     }
 
-    /// <summary>Releases every cached session device. Called by the plugin on shutdown.</summary>
+    /// <summary>Releases every cached session and endpoint device. Called by the plugin on shutdown.</summary>
     public void Dispose()
     {
+        DisposeEndpointCache();
+
         lock (_sessionLock)
         {
             foreach (string id in _sessionCache.Keys.ToList()) ReleaseEndpoint(id);
