@@ -106,24 +106,23 @@ internal sealed class AudioAppVolumeUpCommand(IAudioService audio) : IPluginComm
     public ButtonTargets SupportedTargets =>
         ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
 
-    public Task Execute(CommandContext ctx)
+    public Task Execute(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
         string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
-        if (appId == null) return Task.CompletedTask;
+        if (appId == null) return;
 
         float? current = audio.GetSessionVolume(null, appId);
         if (current == null)
         {
             AudioAppParameter.ReportNoSession(ctx, appId);
-            return Task.CompletedTask;
+            return;
         }
 
         float step = Math.Abs(AudioAppParameter.ResolveInt(ctx, AudioAppParameter.DefaultStepPercent)) / 100f;
         float next = Math.Clamp(current.Value + step, 0f, 1f);
         audio.SetSessionVolume(null, appId, next);
         AudioDeviceParameter.ShowOverlay(ctx, $"{appId} {AudioDeviceParameter.FormatVolume(next)}");
-        return Task.CompletedTask;
-    }
+    });
 }
 
 internal sealed class AudioAppVolumeDownCommand(IAudioService audio) : IPluginCommand
@@ -144,24 +143,23 @@ internal sealed class AudioAppVolumeDownCommand(IAudioService audio) : IPluginCo
     public ButtonTargets SupportedTargets =>
         ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
 
-    public Task Execute(CommandContext ctx)
+    public Task Execute(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
         string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
-        if (appId == null) return Task.CompletedTask;
+        if (appId == null) return;
 
         float? current = audio.GetSessionVolume(null, appId);
         if (current == null)
         {
             AudioAppParameter.ReportNoSession(ctx, appId);
-            return Task.CompletedTask;
+            return;
         }
 
         float step = Math.Abs(AudioAppParameter.ResolveInt(ctx, AudioAppParameter.DefaultStepPercent)) / 100f;
         float next = Math.Clamp(current.Value - step, 0f, 1f);
         audio.SetSessionVolume(null, appId, next);
         AudioDeviceParameter.ShowOverlay(ctx, $"{appId} {AudioDeviceParameter.FormatVolume(next)}");
-        return Task.CompletedTask;
-    }
+    });
 }
 
 internal sealed class AudioAppMuteToggleCommand(IAudioService audio) : IPluginCommand
@@ -182,22 +180,21 @@ internal sealed class AudioAppMuteToggleCommand(IAudioService audio) : IPluginCo
     public ButtonTargets SupportedTargets =>
         ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
 
-    public Task Execute(CommandContext ctx)
+    public Task Execute(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
         string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
-        if (appId == null) return Task.CompletedTask;
+        if (appId == null) return;
 
         bool? muted = audio.GetSessionMute(null, appId);
         if (muted == null)
         {
             AudioAppParameter.ReportNoSession(ctx, appId);
-            return Task.CompletedTask;
+            return;
         }
 
         audio.SetSessionMute(null, appId, !muted.Value);
         AudioDeviceParameter.ShowOverlay(ctx, !muted.Value ? "🔇" : $"🔊 {appId}");
-        return Task.CompletedTask;
-    }
+    });
 }
 
 internal sealed class AudioAppSetVolumeCommand(IAudioService audio) : IPluginCommand
@@ -218,15 +215,14 @@ internal sealed class AudioAppSetVolumeCommand(IAudioService audio) : IPluginCom
     public ButtonTargets SupportedTargets =>
         ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
 
-    public Task Execute(CommandContext ctx)
+    public Task Execute(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
         string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
-        if (appId == null) return Task.CompletedTask;
+        if (appId == null) return;
 
         float target = Math.Clamp(
             AudioAppParameter.ResolveInt(ctx, AudioAppParameter.DefaultPercent), 0, 100) / 100f;
         audio.SetSessionVolume(null, appId, target);
         AudioDeviceParameter.ShowOverlay(ctx, $"{appId} {AudioDeviceParameter.FormatVolume(target)}");
-        return Task.CompletedTask;
-    }
+    });
 }

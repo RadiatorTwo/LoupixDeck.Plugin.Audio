@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Audio;
 
@@ -16,8 +17,8 @@ internal static class PolicyConfig
     private static readonly Guid PolicyConfigClientClsid =
         new("870AF99C-171D-4F9E-AF0D-E63DF40C2BC9");
 
-    /// <summary>Returns true when Windows accepted the switch.</summary>
-    public static bool SetDefaultEndpoint(string endpointId)
+    /// <summary>Returns true when Windows accepted the switch for all three roles.</summary>
+    public static bool SetDefaultEndpoint(string endpointId, IPluginLogger? logger = null)
     {
         Type? type = Type.GetTypeFromCLSID(PolicyConfigClientClsid);
         if (type == null) return false;
@@ -33,14 +34,22 @@ internal static class PolicyConfig
         {
             // Set all three roles, otherwise Windows keeps routing communication audio
             // (and some apps' media audio) to the previous endpoint.
-            config.SetDefaultEndpoint(endpointId, ERole.Console);
-            config.SetDefaultEndpoint(endpointId, ERole.Multimedia);
-            config.SetDefaultEndpoint(endpointId, ERole.Communications);
-            return true;
+            // The method is [PreserveSig], so a failure arrives as an HRESULT, not an exception.
+            bool console = Check(config.SetDefaultEndpoint(endpointId, ERole.Console), ERole.Console);
+            bool multimedia = Check(config.SetDefaultEndpoint(endpointId, ERole.Multimedia), ERole.Multimedia);
+            bool communications = Check(config.SetDefaultEndpoint(endpointId, ERole.Communications), ERole.Communications);
+            return console && multimedia && communications;
         }
         finally
         {
             Marshal.ReleaseComObject(config);
+        }
+
+        bool Check(int hr, ERole role)
+        {
+            if (hr >= 0) return true;
+            logger?.Warn($"Audio: IPolicyConfig.SetDefaultEndpoint({role}) failed with HRESULT 0x{hr:X8}.");
+            return false;
         }
     }
 

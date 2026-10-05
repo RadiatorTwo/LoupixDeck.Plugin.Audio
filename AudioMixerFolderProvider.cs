@@ -30,6 +30,12 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private string? _rendered;
     private Timer? _refresh;
 
+    // The timer, the rotary handlers and the host's BuildEntries all touch the fields above from
+    // different threads. _reloading keeps a slow tick (a pactl call can take a while) from
+    // overlapping the next one, which System.Threading.Timer would otherwise start regardless.
+    private readonly Lock _gate = new();
+    private int _reloading;
+
     internal AudioMixerFolderProvider(IAudioService audio, AudioFolderGrid grid, IPluginHost host,
         MixerTileStyle style, AppIdentityCache identity)
     {
@@ -60,7 +66,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         // during OnEnter makes it redraw the page or parent folder first and race that with the new folder.
         Reload(announce: false);
         // The timer only lives while the folder is open, so a closed mixer costs nothing.
-        _refresh = new Timer(_ => Reload(), null, RefreshInterval, RefreshInterval);
+        _refresh = new Timer(_ => OnTimer(), null, RefreshInterval, RefreshInterval);
     }
 
     public override void OnExit()
@@ -71,6 +77,11 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     }
 
     public override IReadOnlyList<FolderEntry> BuildEntries()
+    {
+        lock (_gate) return BuildEntriesLocked();
+    }
+
+    private List<FolderEntry> BuildEntriesLocked()
     {
         List<FolderEntry> entries = [];
         HashSet<string> used = [];
@@ -95,8 +106,14 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
                 captured.Muted ? PluginColor.FromRgb(0x6E, 0x76, 0x7E) : PluginColor.FromRgb(0xFF, 0xFF, 0xFF),
                 () =>
                 {
-                    _selectedAppId = captured.AppId;
-                    RaiseIfChanged();
+                    bool changed;
+                    lock (_gate)
+                    {
+                        _selectedAppId = captured.AppId;
+                        changed = UpdateSnapshot();
+                    }
+
+                    if (changed) RaiseEntriesChanged();
                     return Task.CompletedTask;
                 });
 
@@ -124,30 +141,61 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private static string NameOf(AudioSessionInfo session, AppIdentity identity) =>
         identity.FriendlyName ?? session.DisplayName;
 
-    private void Reload(bool announce = true)
+    /// <summary>A timer tick, skipped while the previous one is still reading.</summary>
+    private void OnTimer()
     {
-        _sessions = _audio.GetSessions(null);
-
-        // An app that stopped playing must not keep the selection, or the rotary would
-        // silently control nothing.
-        if (_selectedAppId != null &&
-            _sessions.All(s => !string.Equals(s.AppId, _selectedAppId, StringComparison.Ordinal)))
-        {
-            _selectedAppId = null;
-        }
-
-        _selectedAppId ??= _sessions.Count > 0 ? _sessions[0].AppId : null;
-
-        RaiseIfChanged(announce);
+        if (Interlocked.CompareExchange(ref _reloading, 1, 0) != 0) return;
+        try { Reload(); }
+        finally { Volatile.Write(ref _reloading, 0); }
     }
 
     /// <summary>
-    /// Announces new entries only when the tiles would actually look different. The host
-    /// repaints every slot of the folder on each change, so raising the event on every
-    /// timer tick would push a full redraw to the device more than once a second for
-    /// nothing — most ticks read back exactly what is already on screen.
+    /// Re-reads the sessions. Runs on the refresh timer's thread-pool thread, where an exception
+    /// would be unhandled and take the host down, so a failed read keeps the tiles as they are and
+    /// is logged.
     /// </summary>
-    private void RaiseIfChanged(bool announce = true)
+    private void Reload(bool announce = true)
+    {
+        try
+        {
+            // The backend is asked outside the lock, so a slow read never blocks the host's
+            // BuildEntries; only the swap and the comparison are serialised.
+            IReadOnlyList<AudioSessionInfo> sessions = _audio.GetSessions(null);
+
+            bool changed;
+            lock (_gate)
+            {
+                _sessions = sessions;
+
+                // An app that stopped playing must not keep the selection, or the rotary would
+                // silently control nothing.
+                if (_selectedAppId != null &&
+                    _sessions.All(s => !string.Equals(s.AppId, _selectedAppId, StringComparison.Ordinal)))
+                {
+                    _selectedAppId = null;
+                }
+
+                _selectedAppId ??= _sessions.Count > 0 ? _sessions[0].AppId : null;
+
+                changed = UpdateSnapshot();
+            }
+
+            if (changed && announce) RaiseEntriesChanged();
+        }
+        catch (Exception ex)
+        {
+            _host.Logger?.Warn($"Audio mixer: refresh failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Reports whether the tiles would actually look different, so new entries are announced
+    /// only then. The host repaints every slot of the folder on each change, so raising the
+    /// event on every timer tick would push a full redraw to the device more than once a second
+    /// for nothing — most ticks read back exactly what is already on screen. Call under
+    /// <see cref="_gate"/>; the caller raises the event after leaving it.
+    /// </summary>
+    private bool UpdateSnapshot()
     {
         _painter.UpdateMarquee(
             _sessions.Select(session => (NameOf(session, _identity.Resolve(session.ExecutablePath)),
@@ -155,10 +203,10 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
             _style);
 
         string snapshot = DescribeEntries();
-        if (string.Equals(snapshot, _rendered, StringComparison.Ordinal)) return;
+        if (string.Equals(snapshot, _rendered, StringComparison.Ordinal)) return false;
 
         _rendered = snapshot;
-        if (announce) RaiseEntriesChanged();
+        return true;
     }
 
     /// <summary>Everything a tile is drawn from, so an unchanged snapshot means unchanged pixels.</summary>
@@ -179,25 +227,38 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         return builder.ToString();
     }
 
-    private void Adjust(float delta)
+    private void Adjust(float delta) => Change("adjust", appId =>
     {
-        if (_selectedAppId == null) return;
+        float? current = _audio.GetSessionVolume(null, appId);
+        if (current != null)
+            _audio.SetSessionVolume(null, appId, Math.Clamp(current.Value + delta, 0f, 1f));
+    });
 
-        float? current = _audio.GetSessionVolume(null, _selectedAppId);
-        if (current == null) return;
-
-        _audio.SetSessionVolume(null, _selectedAppId, Math.Clamp(current.Value + delta, 0f, 1f));
-        Reload();
-    }
-
-    private void ToggleMute()
+    private void ToggleMute() => Change("toggle mute", appId =>
     {
-        if (_selectedAppId == null) return;
+        bool? muted = _audio.GetSessionMute(null, appId);
+        if (muted != null)
+            _audio.SetSessionMute(null, appId, !muted.Value);
+    });
 
-        bool? muted = _audio.GetSessionMute(null, _selectedAppId);
-        if (muted == null) return;
+    /// <summary>Applies a rotary action to the selected app. An app that quit in between must
+    /// cost the action, not the host.</summary>
+    private void Change(string action, Action<string> apply)
+    {
+        string? appId;
+        lock (_gate) appId = _selectedAppId;
+        if (appId == null) return;
 
-        _audio.SetSessionMute(null, _selectedAppId, !muted.Value);
+        try
+        {
+            apply(appId);
+        }
+        catch (Exception ex)
+        {
+            _host.Logger?.Warn($"Audio mixer: could not {action} '{appId}': {ex.Message}");
+            return;
+        }
+
         Reload();
     }
 }
