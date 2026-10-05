@@ -23,6 +23,8 @@
   "Audio: App Mute": "Audio: App stumm",
   "Audio: App Unmute": "Audio: App Ton an",
   "Audio: Set App Mute": "Audio: App-Stummschaltung setzen",
+  "Audio: Volume Tile": "Audio: Lautstärke-Kachel",
+  "Audio: App Volume Tile": "Audio: App-Lautstärke-Kachel",
   "Audio: Play Sound": "Audio: Sound abspielen",
   "Audio: Stop Sounds": "Audio: Sounds stoppen",
 
@@ -49,6 +51,8 @@
   "Mute one application": "Eine Anwendung stummschalten",
   "Unmute one application": "Die Stummschaltung einer Anwendung aufheben",
   "Mute or unmute one application": "Eine Anwendung stummschalten oder die Stummschaltung aufheben",
+  "Show the device volume and mute state, press to mute": "Lautstärke und Stummschaltung des Geräts anzeigen, Druck schaltet stumm",
+  "Show one application's volume and mute state, press to mute": "Lautstärke und Stummschaltung einer Anwendung anzeigen, Druck schaltet stumm",
   "Play an assigned audio file on the configured device": "Eine zugewiesene Audiodatei auf dem eingestellten Gerät abspielen",
   "Stop every sound started by Play Sound": "Alle über „Sound abspielen“ gestarteten Sounds stoppen",
 
@@ -90,6 +94,7 @@
   "Mute": "Stumm",
   "Mute Toggle": "Stumm umschalten",
   "Set Mute": "Stummschaltung setzen",
+  "Volume Tile": "Lautstärke-Kachel",
   "Mic Mute": "Mikrofon stumm",
   "Default Output": "Standardausgabe",
   "Default Input": "Standardeingabe",

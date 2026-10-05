@@ -95,6 +95,8 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
             new AudioAppSetMuteCommand(_audio),
             new AudioAppSetVolumeCommand(_audio),
             new AudioMixerFolderCommand(_audio, _appIdentity),
+            new AudioVolumeTileCommand(_audio, _aliasStore),
+            new AudioAppVolumeTileCommand(_audio, _appIdentity),
         ];
 
         _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings, _aliasStore, host);

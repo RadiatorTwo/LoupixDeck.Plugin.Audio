@@ -114,6 +114,15 @@ must be installed). A native Wayland window carries no `_NET_WM_PID`, so under a
 Wayland session the dial stays empty for applications that do not go through
 XWayland.
 
+`Audio.VolumeTile` / `Audio.AppVolumeTile` — a touch key that shows one device's
+or one application's level and mute state live, drawn like a mixer tile (a muted
+target is greyed out and struck through); pressing it toggles mute. Assigned from
+the command menu ("Volume Tile" under a device or an application). It takes the
+target plus the tile parameters `layout`, `font`, `transparent` and `outlined`
+described below; a name that does not fit is cut, as a single key does not scroll.
+An application that is not playing is shown greyed out at 0 %. The existing mute
+and volume buttons keep their look; the tile is a separate command to pick.
+
 `Audio.SetVolume` / `Audio.AppSetVolume` — set a device or an application to a
 fixed level in percent, editable per assignment.
 

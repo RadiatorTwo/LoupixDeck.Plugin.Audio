@@ -117,6 +117,7 @@ public sealed partial class AudioPlugin
         children.Add(new MenuNode { Name = "Unmute", CommandName = "Audio.AppUnmute", Parameters = AppParam() });
         children.Add(new MenuNode { Name = "Set Mute", CommandName = "Audio.AppSetMute", Parameters = AppParam() });
         children.Add(new MenuNode { Name = "Set Volume", CommandName = "Audio.AppSetVolume", Parameters = AppParam() });
+        children.Add(new MenuNode { Name = "Volume Tile", CommandName = "Audio.AppVolumeTile", Parameters = AppParam() });
 
         return new MenuNode { Name = label, CommandName = string.Empty, Children = children };
     }
@@ -254,6 +255,7 @@ public sealed partial class AudioPlugin
         children.Add(new MenuNode { Name = "Unmute", CommandName = "Audio.Unmute", Parameters = DeviceParam() });
         children.Add(new MenuNode { Name = "Set Mute", CommandName = "Audio.SetMute", Parameters = DeviceParam() });
         children.Add(new MenuNode { Name = "Set Volume", CommandName = "Audio.SetVolume", Parameters = DeviceParam() });
+        children.Add(new MenuNode { Name = "Volume Tile", CommandName = "Audio.VolumeTile", Parameters = DeviceParam() });
         if (canBeDefault)
             children.Add(new MenuNode { Name = "Set as Default", CommandName = "Audio.SetDefaultDevice", Parameters = DeviceParam() });
 
