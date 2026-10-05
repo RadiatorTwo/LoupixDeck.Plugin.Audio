@@ -23,6 +23,11 @@
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <!-- The NAudio meta package pulls these in, but neither NAudio.dll nor anything this plugin
+         uses references them; leaving their assemblies out keeps them out of the release zip.
+         NAudio.WinMM stays: AudioFileReader in NAudio.dll uses it (ACM for compressed wav). -->
+    <PackageReference Include="NAudio.Asio" Version="2.2.1" ExcludeAssets="all" />
+    <PackageReference Include="NAudio.Midi" Version="2.2.1" ExcludeAssets="all" />
   </ItemGroup>
 
 </Project>
