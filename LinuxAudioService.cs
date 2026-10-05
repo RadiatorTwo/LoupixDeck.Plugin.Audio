@@ -430,7 +430,8 @@ public sealed partial class LinuxAudioService : IAudioService
             bool muted = Regex.Match(block, @"Mute:\s*(\w+)").Groups[1].Value
                 .Equals("yes", StringComparison.OrdinalIgnoreCase);
 
-            string appId = Path.GetFileNameWithoutExtension(binary).ToLowerInvariant();
+            string appId = AppIdOf(binary, appName,
+                Regex.Match(block, @"media\.name\s*=\s*""([^""]+)""").Groups[1].Value);
 
             // The stream's own PID, used to match a stream against the foreground window's
             // process. Absent for a stream that reports no process, which parses as 0.
@@ -447,6 +448,23 @@ public sealed partial class LinuxAudioService : IAudioService
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// The stable identity of a stream. The executable name comes first, so every binding made
+    /// before the fallbacks existed still resolves. Streams without one — some Flatpak apps,
+    /// browser tabs, network streams — fall back to <c>application.name</c>, then <c>media.name</c>;
+    /// those are names rather than file names, so no extension is stripped. Characters that would
+    /// break a saved binding such as <c>Audio.AppVolume(appId,5)</c> are replaced.
+    /// </summary>
+    private static string AppIdOf(string binary, string appName, string mediaName)
+    {
+        if (binary.Length > 0) return Path.GetFileNameWithoutExtension(binary).ToLowerInvariant();
+
+        string name = appName.Trim();
+        if (name.Length == 0) name = mediaName.Trim();
+
+        return name.ToLowerInvariant().Replace(',', '_').Replace('(', '_').Replace(')', '_');
     }
 
     private static Process? StartPaplay(string filePath, string? sink)
