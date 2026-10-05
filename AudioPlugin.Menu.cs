@@ -44,7 +44,7 @@ public sealed partial class AudioPlugin
             rootChildren.Add(DevicesCategory("Input Devices", "Default Input", AudioDeviceParameter.DefaultInputDeviceId,
                 inputs, includeGroup));
 
-        rootChildren.Add(ApplicationsCategory(includeGroup));
+        rootChildren.Add(ApplicationsCategory(includeGroup, target.HasFlag(ButtonTargets.TouchButton)));
         rootChildren.Add(SoundsCategory());
         // A sibling of the sound tree rather than a child of it: stopping must stay
         // reachable even when no sound folder is configured.
@@ -63,9 +63,9 @@ public sealed partial class AudioPlugin
     /// binding stores the process name, so it keeps working after that app restarts. The
     /// foreground entry is always offered because it needs no running session to be useful.
     /// </summary>
-    private MenuNode ApplicationsCategory(bool includeGroup)
+    private MenuNode ApplicationsCategory(bool includeGroup, bool touch)
     {
-        List<MenuNode> children = [AppNode("Foreground App", AudioAppParameter.ForegroundAppId, includeGroup)];
+        List<MenuNode> children = [AppNode("Foreground App", AudioAppParameter.ForegroundAppId, includeGroup, touch)];
 
         IReadOnlyList<AudioSessionInfo> sessions;
         try
@@ -80,12 +80,12 @@ public sealed partial class AudioPlugin
         }
 
         foreach (AudioSessionInfo session in sessions)
-            children.Add(AppNode(session.DisplayName, session.AppId, includeGroup));
+            children.Add(AppNode(session.DisplayName, session.AppId, includeGroup, touch));
 
         return new MenuNode { Name = "Applications", CommandName = string.Empty, Children = children };
     }
 
-    private MenuNode AppNode(string label, string appId, bool includeGroup)
+    private MenuNode AppNode(string label, string appId, bool includeGroup, bool touch)
     {
         Dictionary<string, string> AppParam() => new(StringComparer.Ordinal)
         {
@@ -112,12 +112,18 @@ public sealed partial class AudioPlugin
 
         children.Add(new MenuNode { Name = "Volume Down", CommandName = "Audio.AppVolumeDown", Parameters = AppParam() });
         children.Add(new MenuNode { Name = "Volume Up", CommandName = "Audio.AppVolumeUp", Parameters = AppParam() });
-        children.Add(new MenuNode { Name = "Mute Toggle", CommandName = "Audio.AppMuteToggle", Parameters = AppParam() });
+        // On a touch key the mute toggle is the tile, which shows level and mute state live. A button
+        // or dial cannot show it, so there the plain toggle stays.
+        children.Add(new MenuNode
+        {
+            Name = "Mute Toggle",
+            CommandName = touch ? "Audio.AppVolumeTile" : "Audio.AppMuteToggle",
+            Parameters = AppParam()
+        });
         children.Add(new MenuNode { Name = "Mute", CommandName = "Audio.AppMute", Parameters = AppParam() });
         children.Add(new MenuNode { Name = "Unmute", CommandName = "Audio.AppUnmute", Parameters = AppParam() });
         children.Add(new MenuNode { Name = "Set Mute", CommandName = "Audio.AppSetMute", Parameters = AppParam() });
         children.Add(new MenuNode { Name = "Set Volume", CommandName = "Audio.AppSetVolume", Parameters = AppParam() });
-        children.Add(new MenuNode { Name = "Volume Tile", CommandName = "Audio.AppVolumeTile", Parameters = AppParam() });
 
         return new MenuNode { Name = label, CommandName = string.Empty, Children = children };
     }

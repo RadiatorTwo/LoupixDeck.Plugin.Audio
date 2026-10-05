@@ -41,8 +41,8 @@ alias. A device in the list that is not connected is skipped.
 device, assigned from the command menu (Audio → Output/Input Devices). The
 volume step is editable per assignment.
 
-On a touch key `Audio.MuteToggle` and `Audio.AppMuteToggle` show their state
-live when the `showState` parameter is on: a speaker or microphone in white with
+On a touch key `Audio.MuteToggle` shows its state live when the `showState`
+parameter is on: a speaker or microphone in white with
 the level below it, crossed out in red with "Muted" while muted. A newly
 assigned toggle has it on. The key is drawn on a transparent background, so the
 wallpaper shows through. A toggle assigned before the parameter existed keeps
@@ -124,7 +124,10 @@ XWayland.
 `Audio.VolumeTile` / `Audio.AppVolumeTile` — a touch key that shows one device's
 or one application's level and mute state live, drawn like a mixer tile (a muted
 target is greyed out and struck through); pressing it toggles mute. Assigned from
-the command menu ("Volume Tile" under a device or an application). It takes the
+the command menu: "Volume Tile" under a device, and "Mute Toggle" under an
+application when the menu is opened for a touch key. On a button or dial an
+application's "Mute Toggle" is still `Audio.AppMuteToggle`, which keeps its static
+icon. It takes the
 target plus the tile parameters `layout`, `font`, `transparent` and `outlined`
 described below; a name that does not fit is cut, as a single key does not scroll.
 An application that is not playing is shown greyed out at 0 %. The existing mute

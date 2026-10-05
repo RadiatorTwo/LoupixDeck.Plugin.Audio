@@ -127,14 +127,16 @@ internal sealed class AudioVolumeTileCommand(IAudioService audio, AudioAliasStor
 
 /// <summary>
 /// One application's volume and mute state on a single touch key, with its icon on Windows. Pressing
-/// it toggles the app's mute. The counterpart of <see cref="AudioVolumeTileCommand"/>.
+/// it toggles the app's mute. The counterpart of <see cref="AudioVolumeTileCommand"/>, and what the
+/// menu offers as an app's "Mute Toggle" on a touch key; <c>Audio.AppMuteToggle</c> stays for buttons
+/// and dials, which cannot show a state, and for bindings saved before.
 /// </summary>
 internal sealed class AudioAppVolumeTileCommand(IAudioService audio, AppIdentityCache identity) : IDisplayImageCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
         CommandName = "Audio.AppVolumeTile",
-        DisplayName = "Audio: App Volume Tile",
+        DisplayName = "Audio: App Mute Toggle",
         Group = "Audio",
         Icon = AudioButtonLayouts.VolumeSet,
         ButtonLayout = AudioVolumeTile.Layout,

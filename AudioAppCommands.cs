@@ -186,7 +186,7 @@ internal sealed class AudioAppVolumeDownCommand(IAudioService audio) : IPluginCo
     });
 }
 
-internal sealed class AudioAppMuteToggleCommand(IAudioService audio) : IDisplayImageCommand
+internal sealed class AudioAppMuteToggleCommand(IAudioService audio) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -194,41 +194,12 @@ internal sealed class AudioAppMuteToggleCommand(IAudioService audio) : IDisplayI
         DisplayName = "Audio: App Mute Toggle",
         Group = "Audio",
         Icon = AudioButtonLayouts.Mute,
-        ButtonLayout = AudioMuteStateKey.Layout,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Mute, "App Mute"),
         Description = "Toggle mute for one application",
         HiddenFromMenu = true,
-        ParameterTemplate = "({appId},{showState})",
-        Parameters = [new CommandParameter(AudioAppParameter.AppIdName, typeof(string)), AudioMuteStateKey.ShowStateParameter]
+        ParameterTemplate = "({appId})",
+        Parameters = AudioAppParameter.AppIdParameters
     };
-
-    // Slower than the device toggle: finding an app walks the sessions of every output device.
-    public TimeSpan UpdateInterval => TimeSpan.FromMilliseconds(500);
-
-    public bool RenderImage(CommandContext ctx, IRenderCanvas canvas)
-    {
-        if (AudioMuteStateKey.IsLegacy(ctx)) return false;
-        if (!AudioMuteStateKey.Enabled(ctx)) return AudioMuteStateKey.DrawStatic(canvas, ctx.Host.Tr("App Mute"));
-
-        try
-        {
-            string? appId = AudioAppParameter.ResolveAppId(ctx, audio);
-            if (appId == null) return false;
-
-            AudioSessionInfo? session = audio.GetSessions(null)
-                .FirstOrDefault(s => string.Equals(s.AppId, appId, StringComparison.Ordinal));
-
-            // An app that is not playing has nothing to mute; it reads as live with no level.
-            bool muted = session?.Muted ?? false;
-            string caption = muted ? ctx.Host.Tr("Muted")
-                : session == null ? appId
-                : AudioDeviceParameter.FormatVolume(session.Volume);
-            return AudioMuteStateKey.Draw(canvas, muted, microphone: false, caption);
-        }
-        catch
-        {
-            return false;
-        }
-    }
 
     public ButtonTargets SupportedTargets =>
         ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
@@ -247,7 +218,6 @@ internal sealed class AudioAppMuteToggleCommand(IAudioService audio) : IDisplayI
 
         audio.SetSessionMute(null, appId, !muted.Value);
         AudioDeviceParameter.ShowOverlay(ctx, !muted.Value ? "🔇" : $"🔊 {appId}");
-        ctx.Host.RequestButtonRefresh(Descriptor.CommandName);
     });
 }
 
