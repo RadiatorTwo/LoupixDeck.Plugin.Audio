@@ -28,6 +28,12 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
     private string? _rendered;
     private Timer? _refresh;
 
+    // The timer, alias changes and the host's BuildEntries all touch the fields above from
+    // different threads. _reloading keeps a slow tick (a pactl call can take a while) from
+    // overlapping the next one, which System.Threading.Timer would otherwise start regardless.
+    private readonly Lock _gate = new();
+    private int _reloading;
+
     /// <summary>An endpoint as the tile shows it, read once per refresh.</summary>
     private sealed record DeviceRow(AudioEndpointInfo Endpoint, string Name, int Percent, bool Muted);
 
@@ -56,7 +62,7 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
         // during OnEnter makes it redraw the page or parent folder first and race that with the new folder.
         Reload(announce: false);
         // The timer only lives while the folder is open, so a closed folder costs nothing.
-        _refresh = new Timer(_ => Reload(), null, RefreshInterval, RefreshInterval);
+        _refresh = new Timer(_ => OnTimer(), null, RefreshInterval, RefreshInterval);
     }
 
     public override void OnExit()
@@ -69,7 +75,19 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
 
     public override IReadOnlyList<FolderEntry> BuildEntries()
     {
-        IReadOnlyList<DeviceRow> rows = _rows ??= ReadRows();
+        IReadOnlyList<DeviceRow>? rows;
+        lock (_gate) rows = _rows;
+        if (rows == null)
+        {
+            rows = ReadRows();
+            lock (_gate) _rows ??= rows;
+        }
+
+        lock (_gate) return BuildEntries(rows);
+    }
+
+    private List<FolderEntry> BuildEntries(IReadOnlyList<DeviceRow> rows)
+    {
         List<FolderEntry> entries = new(rows.Count);
         HashSet<string> used = [];
 
@@ -139,22 +157,53 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
     private void OnAliasChanged()
     {
         // A renamed device has to show its new name even though nothing else changed.
-        _rendered = null;
+        lock (_gate) _rendered = null;
         Reload();
     }
 
-    private void Reload(bool announce = true)
+    /// <summary>A timer tick, skipped while the previous one is still reading.</summary>
+    private void OnTimer()
     {
-        _rows = ReadRows();
-        RaiseIfChanged(announce);
+        if (Interlocked.CompareExchange(ref _reloading, 1, 0) != 0) return;
+        try { Reload(); }
+        finally { Volatile.Write(ref _reloading, 0); }
     }
 
     /// <summary>
-    /// Announces new entries only when the tiles would actually look different. The host repaints every
-    /// slot of the folder on each change, so raising the event on every timer tick would push a full
-    /// redraw to the device more than once a second for nothing.
+    /// Re-reads the devices. Runs on the refresh timer's thread-pool thread, where an exception —
+    /// a COM error while the Windows audio service restarts, say — would be unhandled and take
+    /// the host down, so a failed read keeps the tiles as they are and is logged.
     /// </summary>
-    private void RaiseIfChanged(bool announce = true)
+    private void Reload(bool announce = true)
+    {
+        try
+        {
+            // The backend is read outside the lock, so a slow read never blocks the host's
+            // BuildEntries; only the swap and the comparison are serialised.
+            IReadOnlyList<DeviceRow> rows = ReadRows();
+
+            bool changed;
+            lock (_gate)
+            {
+                _rows = rows;
+                changed = UpdateSnapshot();
+            }
+
+            if (changed && announce) RaiseEntriesChanged();
+        }
+        catch (Exception ex)
+        {
+            _host.Logger?.Warn($"Audio devices: refresh failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Reports whether the tiles would actually look different, so new entries are announced only then.
+    /// The host repaints every slot of the folder on each change, so raising the event on every timer
+    /// tick would push a full redraw to the device more than once a second for nothing. Call under
+    /// <see cref="_gate"/>; the caller raises the event after leaving it.
+    /// </summary>
+    private bool UpdateSnapshot()
     {
         IReadOnlyList<DeviceRow> rows = _rows ?? [];
         _painter.UpdateMarquee(rows.Select(row => (row.Name, row.Endpoint.IsDefault)), _style);
@@ -168,9 +217,9 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
         }
 
         string snapshot = builder.ToString();
-        if (string.Equals(snapshot, _rendered, StringComparison.Ordinal)) return;
+        if (string.Equals(snapshot, _rendered, StringComparison.Ordinal)) return false;
 
         _rendered = snapshot;
-        if (announce) RaiseEntriesChanged();
+        return true;
     }
 }

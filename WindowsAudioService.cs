@@ -55,7 +55,32 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
     // WASAPI ships with Windows, so there is nothing that could be missing.
     public IReadOnlyList<PluginRequirement> GetRequirements() => [];
 
+    /// <summary>
+    /// The active endpoints of one kind. When the enumeration fails — for example while the Windows
+    /// audio service restarts — the last list that was read is returned instead of throwing, because
+    /// the callers run on timers and menu builders where an exception would take down far more than
+    /// one stale list costs.
+    /// </summary>
     public IReadOnlyList<AudioEndpointInfo> GetEndpoints(AudioEndpointKind kind)
+    {
+        try
+        {
+            IReadOnlyList<AudioEndpointInfo> endpoints = EnumerateEndpoints(kind);
+            lock (_lastEndpointsLock) _lastEndpoints[kind] = endpoints;
+            return endpoints;
+        }
+        catch (Exception ex)
+        {
+            LogOnce($"enumerate {kind} endpoints", ex);
+            lock (_lastEndpointsLock)
+                return _lastEndpoints.TryGetValue(kind, out IReadOnlyList<AudioEndpointInfo>? last) ? last : [];
+        }
+    }
+
+    private readonly Lock _lastEndpointsLock = new();
+    private readonly Dictionary<AudioEndpointKind, IReadOnlyList<AudioEndpointInfo>> _lastEndpoints = [];
+
+    private List<AudioEndpointInfo> EnumerateEndpoints(AudioEndpointKind kind)
     {
         using var enumerator = new MMDeviceEnumerator();
         var flow = kind == AudioEndpointKind.Render ? DataFlow.Render : DataFlow.Capture;
@@ -373,7 +398,7 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
 
         try
         {
-            return PolicyConfig.SetDefaultEndpoint(endpointId);
+            return PolicyConfig.SetDefaultEndpoint(endpointId, Logger);
         }
         catch (Exception ex)
         {

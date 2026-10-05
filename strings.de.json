@@ -106,5 +106,6 @@
   "App Volume +": "App lauter",
   "App Volume -": "App leiser",
   "App Mute": "App stumm",
-  "Set App Volume": "App-Lautstärke"
+  "Set App Volume": "App-Lautstärke",
+  "Failed": "Fehlgeschlagen"
 }

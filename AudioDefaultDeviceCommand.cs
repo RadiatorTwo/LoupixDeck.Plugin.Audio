@@ -34,7 +34,7 @@ internal sealed class AudioSetDefaultDeviceCommand(IAudioService audio) : IPlugi
         if (!audio.SetDefaultEndpoint(id))
         {
             ctx.Host.Logger.Warn($"Audio: could not make '{id}' the default device.");
-            AudioDeviceParameter.ShowOverlay(ctx, "Failed");
+            AudioDeviceParameter.ShowOverlay(ctx, ctx.Host.Tr("Failed"));
             return Task.CompletedTask;
         }
 

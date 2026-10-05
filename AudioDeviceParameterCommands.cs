@@ -165,6 +165,26 @@ internal static class AudioDeviceParameter
     }
 
     public static string FormatVolume(float scalar01) => $"{(int)Math.Round(scalar01 * 100f)}%";
+
+    /// <summary>
+    /// Runs a command body that talks to the audio backend. An endpoint that vanished, a COM error
+    /// while the audio service restarts or a failed pactl call is logged and shown as "Failed" on
+    /// the dial instead of escaping into the host.
+    /// </summary>
+    public static Task Guard(CommandContext ctx, string commandName, Action body)
+    {
+        try
+        {
+            body();
+        }
+        catch (Exception ex)
+        {
+            ctx.Host.Logger?.Warn($"{commandName} failed: {ex.Message}");
+            ShowOverlay(ctx, ctx.Host.Tr("Failed"));
+        }
+
+        return Task.CompletedTask;
+    }
 }
 
 internal sealed class AudioVolumeUpCommand(IAudioService audio) : IPluginCommand
@@ -184,15 +204,14 @@ internal sealed class AudioVolumeUpCommand(IAudioService audio) : IPluginCommand
 
     public ButtonTargets SupportedTargets => ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
 
-    public Task Execute(CommandContext ctx)
+    public Task Execute(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
         var id = AudioDeviceParameter.ResolveDeviceId(ctx, audio);
-        if (id == null) return Task.CompletedTask;
+        if (id == null) return;
         var next = Math.Clamp(audio.GetVolume(id) + AudioDeviceParameter.ResolveStepScalar(ctx), 0f, 1f);
         audio.SetVolume(id, next);
         AudioDeviceParameter.ShowOverlay(ctx, AudioDeviceParameter.FormatVolume(next));
-        return Task.CompletedTask;
-    }
+    });
 }
 
 internal sealed class AudioVolumeDownCommand(IAudioService audio) : IPluginCommand
@@ -212,15 +231,14 @@ internal sealed class AudioVolumeDownCommand(IAudioService audio) : IPluginComma
 
     public ButtonTargets SupportedTargets => ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
 
-    public Task Execute(CommandContext ctx)
+    public Task Execute(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
         var id = AudioDeviceParameter.ResolveDeviceId(ctx, audio);
-        if (id == null) return Task.CompletedTask;
+        if (id == null) return;
         var next = Math.Clamp(audio.GetVolume(id) - AudioDeviceParameter.ResolveStepScalar(ctx), 0f, 1f);
         audio.SetVolume(id, next);
         AudioDeviceParameter.ShowOverlay(ctx, AudioDeviceParameter.FormatVolume(next));
-        return Task.CompletedTask;
-    }
+    });
 }
 
 internal sealed class AudioMuteToggleCommand(IAudioService audio) : IPluginCommand
@@ -240,15 +258,14 @@ internal sealed class AudioMuteToggleCommand(IAudioService audio) : IPluginComma
 
     public ButtonTargets SupportedTargets => ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
 
-    public Task Execute(CommandContext ctx)
+    public Task Execute(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
         var id = AudioDeviceParameter.ResolveDeviceId(ctx, audio);
-        if (id == null) return Task.CompletedTask;
+        if (id == null) return;
         var muted = !audio.GetMute(id);
         audio.SetMute(id, muted);
         AudioDeviceParameter.ShowOverlay(ctx, muted ? "🔇" : $"🔊 {AudioDeviceParameter.FormatVolume(audio.GetVolume(id))}");
-        return Task.CompletedTask;
-    }
+    });
 }
 
 internal sealed class AudioSetVolumeCommand(IAudioService audio) : IPluginCommand
@@ -269,14 +286,13 @@ internal sealed class AudioSetVolumeCommand(IAudioService audio) : IPluginComman
     public ButtonTargets SupportedTargets =>
         ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
 
-    public Task Execute(CommandContext ctx)
+    public Task Execute(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
         string? id = AudioDeviceParameter.ResolveDeviceId(ctx, audio);
-        if (id == null) return Task.CompletedTask;
+        if (id == null) return;
 
         float target = AudioDeviceParameter.ResolvePercentScalar(ctx);
         audio.SetVolume(id, target);
         AudioDeviceParameter.ShowOverlay(ctx, AudioDeviceParameter.FormatVolume(target));
-        return Task.CompletedTask;
-    }
+    });
 }
