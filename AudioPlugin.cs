@@ -104,7 +104,8 @@ public sealed class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContri
         // Sounds are fire-and-forget, so an unloaded plugin could otherwise leave
         // a WASAPI stream or a paplay process behind.
         _audio.StopAllPlayback();
-        // The Windows backend holds a cached session device that COM only releases on demand.
+        // The Windows backend holds a cached session device that COM only releases on demand;
+        // the Linux backend runs a pactl event monitor process.
         if (_audio is IDisposable disposable) disposable.Dispose();
         base.Shutdown();
     }

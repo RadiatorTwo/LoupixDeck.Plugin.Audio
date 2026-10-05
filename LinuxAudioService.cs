@@ -9,7 +9,7 @@ namespace LoupixDeck.Plugin.Audio;
 /// Linux implementation backed by <c>pactl</c>. Works on PulseAudio and on PipeWire
 /// systems via the pipewire-pulse compatibility layer.
 /// </summary>
-public sealed class LinuxAudioService : IAudioService
+public sealed partial class LinuxAudioService : IAudioService
 {
     private static readonly ToolProbe HasPactl = new("pactl", "--version");
     private static readonly ToolProbe HasPaplay = new("paplay", "--version");
@@ -68,126 +68,52 @@ public sealed class LinuxAudioService : IAudioService
         ];
     }
 
-    public IReadOnlyList<AudioEndpointInfo> GetEndpoints(AudioEndpointKind kind)
-    {
-        if (!IsSupported) return [];
-
-        var listNoun = kind == AudioEndpointKind.Render ? "sinks" : "sources";
-        var defaultNoun = kind == AudioEndpointKind.Render ? "sink" : "source";
-
-        var defaultName = RunPactl($"get-default-{defaultNoun}").Trim();
-
-        // A pactl call that failed or timed out (a stuck PulseAudio socket, say) reads as "no
-        // devices", which would empty every menu and folder for one refresh. Keep the last list.
-        if (!TryRunPactl(out string listOutput, "list", listNoun))
-        {
-            lock (_lastEndpointsLock)
-                return _lastEndpoints.TryGetValue(kind, out IReadOnlyList<AudioEndpointInfo>? last) ? last : [];
-        }
-
-        IReadOnlyList<AudioEndpointInfo> endpoints = ParseEndpoints(listOutput, defaultName, kind);
-        lock (_lastEndpointsLock) _lastEndpoints[kind] = endpoints;
-        return endpoints;
-    }
-
-    private readonly Lock _lastEndpointsLock = new();
-    private readonly Dictionary<AudioEndpointKind, IReadOnlyList<AudioEndpointInfo>> _lastEndpoints = [];
+    public IReadOnlyList<AudioEndpointInfo> GetEndpoints(AudioEndpointKind kind) =>
+        IsSupported ? Endpoints(kind).List : [];
 
     public string? GetDefaultEndpointId(AudioEndpointKind kind)
     {
         if (!IsSupported) return null;
 
-        var noun = kind == AudioEndpointKind.Render ? "sink" : "source";
-        var name = RunPactl($"get-default-{noun}").Trim();
+        string name = Endpoints(kind).DefaultName;
         if (string.IsNullOrEmpty(name)) return null;
 
         // Same "sink:NAME" / "source:NAME" encoding GetEndpoints reports, so the id is
         // interchangeable with a bound one.
-        return $"{noun}:{name}";
+        return LevelKey(kind, name);
     }
 
-    public float GetVolume(string endpointId)
-    {
-        if (!IsSupported) return 0f;
-        var (kind, name) = SplitId(endpointId);
-        var noun = kind == AudioEndpointKind.Render ? "sink" : "source";
-        var output = RunPactl($"get-{noun}-volume", name);
-        // e.g. "Volume: front-left: 45875 / 70% / -9.62 dB, front-right: 45875 / 70% ..."
-        var m = Regex.Match(output, @"(\d+)%");
-        return m.Success
-            ? Math.Clamp(int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) / 100f, 0f, 1f)
-            : 0f;
-    }
+    public float GetVolume(string endpointId) => IsSupported ? Level(endpointId).Volume : 0f;
 
     public void SetVolume(string endpointId, float scalar01)
     {
         if (!IsSupported) return;
         var (kind, name) = SplitId(endpointId);
-        var noun = kind == AudioEndpointKind.Render ? "sink" : "source";
-        var pct = (int)Math.Round(Math.Clamp(scalar01, 0f, 1f) * 100f);
-        RunPactl($"set-{noun}-volume", name, $"{pct.ToString(CultureInfo.InvariantCulture)}%");
+        float clamped = Math.Clamp(scalar01, 0f, 1f);
+        var pct = (int)Math.Round(clamped * 100f);
+        if (TryRunPactl(out _, $"set-{Noun(kind)}-volume", name, $"{pct.ToString(CultureInfo.InvariantCulture)}%"))
+            StoreLevel(endpointId, pct / 100f, null);
     }
 
-    public bool GetMute(string endpointId)
-    {
-        if (!IsSupported) return false;
-        var (kind, name) = SplitId(endpointId);
-        var noun = kind == AudioEndpointKind.Render ? "sink" : "source";
-        var output = RunPactl($"get-{noun}-mute", name).Trim();
-        // "Mute: yes" / "Mute: no"
-        return output.EndsWith("yes", StringComparison.OrdinalIgnoreCase);
-    }
+    public bool GetMute(string endpointId) => IsSupported && Level(endpointId).Muted;
 
     public void SetMute(string endpointId, bool muted)
     {
         if (!IsSupported) return;
         var (kind, name) = SplitId(endpointId);
-        var noun = kind == AudioEndpointKind.Render ? "sink" : "source";
-        RunPactl($"set-{noun}-mute", name, muted ? "1" : "0");
+        if (TryRunPactl(out _, $"set-{Noun(kind)}-mute", name, muted ? "1" : "0"))
+            StoreLevel(endpointId, null, muted);
     }
 
+    /// <summary>
+    /// Registers with the shared event monitor. The callback runs only for a change on exactly
+    /// this device, not for app streams or other devices, which used to cost two pactl processes
+    /// per subscriber on every stream change.
+    /// </summary>
     public IDisposable SubscribeVolumeChanges(string endpointId, Action<float, bool> onChange)
     {
         ArgumentNullException.ThrowIfNull(onChange);
-        if (!IsSupported) return EmptyDisposable.Instance;
-
-        var (kind, _) = SplitId(endpointId);
-        var noun = kind == AudioEndpointKind.Render ? "sink" : "source";
-
-        Process proc;
-        try
-        {
-            proc = Process.Start(PactlStartInfo("subscribe"))!;
-        }
-        catch
-        {
-            return EmptyDisposable.Instance;
-        }
-
-        var cts = new CancellationTokenSource();
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var reader = proc.StandardOutput;
-                while (!cts.IsCancellationRequested)
-                {
-                    var line = await reader.ReadLineAsync(cts.Token).ConfigureAwait(false);
-                    if (line == null) break;
-                    // pactl subscribe output: "Event 'change' on sink #42"
-                    if (line.Contains($"on {noun}", StringComparison.Ordinal) &&
-                        line.Contains("change", StringComparison.Ordinal))
-                    {
-                        try { onChange(GetVolume(endpointId), GetMute(endpointId)); }
-                        catch { /* swallow callback failure */ }
-                    }
-                }
-            }
-            catch { /* process killed on dispose */ }
-        }, cts.Token);
-
-        return new Subscription(proc, cts);
+        return IsSupported ? AddListener(endpointId, onChange) : EmptyDisposable.Instance;
     }
 
     public void PlayFile(string filePath, string? endpointId)
@@ -272,7 +198,7 @@ public sealed class LinuxAudioService : IAudioService
         if (!IsSupported) return [];
 
         Dictionary<string, AudioSessionInfo> byApp = new(StringComparer.Ordinal);
-        foreach (SinkInput input in ParseSinkInputs(RunPactl("list", "sink-inputs")))
+        foreach (SinkInput input in SinkInputs())
         {
             if (input.AppId.Length == 0) continue;
 
@@ -301,7 +227,7 @@ public sealed class LinuxAudioService : IAudioService
         if (!IsSupported) return null;
 
         float? result = null;
-        foreach (SinkInput input in ParseSinkInputs(RunPactl("list", "sink-inputs")))
+        foreach (SinkInput input in SinkInputs())
         {
             if (!string.Equals(input.AppId, appId, StringComparison.Ordinal)) continue;
             result = result is { } current ? Math.Max(current, input.Volume) : input.Volume;
@@ -314,12 +240,13 @@ public sealed class LinuxAudioService : IAudioService
         if (!IsSupported) return;
 
         int percent = (int)Math.Round(Math.Clamp(scalar01, 0f, 1f) * 100f);
-        foreach (SinkInput input in ParseSinkInputs(RunPactl("list", "sink-inputs")))
+        foreach (SinkInput input in SinkInputs())
         {
             if (string.Equals(input.AppId, appId, StringComparison.Ordinal))
                 RunPactl("set-sink-input-volume", input.Index.ToString(CultureInfo.InvariantCulture),
                     $"{percent.ToString(CultureInfo.InvariantCulture)}%");
         }
+        InvalidateSinkInputs();
     }
 
     public bool? GetSessionMute(string? endpointId, string appId)
@@ -327,7 +254,7 @@ public sealed class LinuxAudioService : IAudioService
         if (!IsSupported) return null;
 
         bool? result = null;
-        foreach (SinkInput input in ParseSinkInputs(RunPactl("list", "sink-inputs")))
+        foreach (SinkInput input in SinkInputs())
         {
             if (!string.Equals(input.AppId, appId, StringComparison.Ordinal)) continue;
             result = result is { } current ? current && input.Muted : input.Muted;
@@ -339,11 +266,12 @@ public sealed class LinuxAudioService : IAudioService
     {
         if (!IsSupported) return;
 
-        foreach (SinkInput input in ParseSinkInputs(RunPactl("list", "sink-inputs")))
+        foreach (SinkInput input in SinkInputs())
         {
             if (string.Equals(input.AppId, appId, StringComparison.Ordinal))
                 RunPactl("set-sink-input-mute", input.Index.ToString(CultureInfo.InvariantCulture), muted ? "1" : "0");
         }
+        InvalidateSinkInputs();
     }
 
     /// <summary>
@@ -386,7 +314,7 @@ public sealed class LinuxAudioService : IAudioService
         if (!int.TryParse(pidMatch.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int pid))
             return null;
 
-        IReadOnlyList<SinkInput> inputs = ParseSinkInputs(RunPactl("list", "sink-inputs"));
+        IReadOnlyList<SinkInput> inputs = SinkInputs();
 
         // The stream's own PID is the exact answer whenever the window's process (or one of its
         // ancestors, which is how a browser tab's window maps onto the process that plays the
@@ -457,8 +385,17 @@ public sealed class LinuxAudioService : IAudioService
         // happened" to the user. Move them across too.
         if (kind == AudioEndpointKind.Render)
         {
-            foreach (SinkInput input in ParseSinkInputs(RunPactl("list", "sink-inputs")))
+            foreach (SinkInput input in SinkInputs())
                 RunPactl("move-sink-input", input.Index.ToString(CultureInfo.InvariantCulture), name);
+            InvalidateSinkInputs();
+        }
+
+        // The server event that follows would clear it too, but a menu opened right now must
+        // already show the new default.
+        lock (_cacheLock)
+        {
+            _endpoints.Remove(kind);
+            _generation++;
         }
 
         string current = RunPactl($"get-default-{noun}").Trim();
@@ -774,17 +711,6 @@ public sealed class LinuxAudioService : IAudioService
         {
             _state = 0;
             return Value;
-        }
-    }
-
-    private sealed class Subscription(Process proc, CancellationTokenSource cts) : IDisposable
-    {
-        public void Dispose()
-        {
-            try { cts.Cancel(); } catch { /* ignore */ }
-            try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { /* ignore */ }
-            proc.Dispose();
-            cts.Dispose();
         }
     }
 
