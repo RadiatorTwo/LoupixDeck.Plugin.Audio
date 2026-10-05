@@ -279,7 +279,7 @@ internal sealed class AudioVolumeDownCommand(IAudioService audio) : IPluginComma
     });
 }
 
-internal sealed class AudioMuteToggleCommand(IAudioService audio) : IPluginCommand
+internal sealed class AudioMuteToggleCommand(IAudioService audio) : IDisplayImageCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -290,11 +290,14 @@ internal sealed class AudioMuteToggleCommand(IAudioService audio) : IPluginComma
         ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Mute, "Mute"),
         Description = "Toggle mute for the device",
         HiddenFromMenu = true,
-        ParameterTemplate = "({deviceId})",
-        Parameters = AudioDeviceParameter.DeviceIdParameters
+        ParameterTemplate = "({deviceId},{showState})",
+        Parameters = [new CommandParameter(AudioDeviceParameter.DeviceIdName, typeof(string)), AudioMuteStateKey.ShowStateParameter]
     };
 
     public ButtonTargets SupportedTargets => ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
+
+    // Reading a level is cheap with the cached endpoint objects, so a mute from elsewhere shows quickly.
+    public TimeSpan UpdateInterval => TimeSpan.FromMilliseconds(250);
 
     public Task Execute(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
@@ -303,7 +306,28 @@ internal sealed class AudioMuteToggleCommand(IAudioService audio) : IPluginComma
         var muted = !audio.GetMute(id);
         audio.SetMute(id, muted);
         AudioDeviceParameter.ShowOverlay(ctx, muted ? "🔇" : $"🔊 {AudioDeviceParameter.FormatVolume(audio.GetVolume(id))}");
+        ctx.Host.RequestButtonRefresh(Descriptor.CommandName);
     });
+
+    public bool RenderImage(CommandContext ctx, IRenderCanvas canvas)
+    {
+        if (!AudioMuteStateKey.Enabled(ctx)) return false;
+
+        try
+        {
+            string? id = AudioDeviceParameter.ResolveDeviceId(ctx, audio);
+            if (id == null) return false;
+
+            bool muted = audio.GetMute(id);
+            string caption = muted ? ctx.Host.Tr("Muted") : AudioDeviceParameter.FormatVolume(audio.GetVolume(id));
+            return AudioMuteStateKey.Draw(canvas, muted, AudioMuteStateKey.IsCapture(ctx.Parameters[0], id), caption);
+        }
+        catch
+        {
+            // Runs on the host's render path: an endpoint that vanished costs this frame, not the deck.
+            return false;
+        }
+    }
 }
 
 internal sealed class AudioMuteCommand(IAudioService audio) : IPluginCommand
