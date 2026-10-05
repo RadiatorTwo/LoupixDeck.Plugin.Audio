@@ -52,7 +52,13 @@ public sealed partial class LinuxAudioService : IDisposable
     private sealed record CachedEndpoints(IReadOnlyList<AudioEndpointInfo> List, string DefaultName, long Stamp);
     private sealed record CachedSinkInputs(IReadOnlyList<SinkInput> List, long Stamp);
 
-    private bool MonitorRunning => _monitor != null;
+    /// <summary>
+    /// True once the monitor has had time to connect. <c>pactl subscribe</c> needs a moment after
+    /// the process starts; a change in that gap would never be reported, so until then cached
+    /// answers still expire as if no monitor ran.
+    /// </summary>
+    private bool MonitorRunning =>
+        _monitor != null && Environment.TickCount64 - _monitorStartedAt >= UnmonitoredLifetimeMs;
 
     private bool IsFresh(long stamp) =>
         MonitorRunning || Environment.TickCount64 - stamp < UnmonitoredLifetimeMs;
@@ -113,6 +119,16 @@ public sealed partial class LinuxAudioService : IDisposable
         {
             // Only a known entry is updated: half a level (volume without mute) is not a level.
             if (!_levels.TryGetValue(key, out CachedLevel? cached)) return;
+
+            // PulseAudio posts no change event for a write that changes nothing (a dial turned
+            // further at 100 %), so such a write must not wait for an echo: it would swallow the
+            // next outside change as its own.
+            if ((volume == null || Math.Abs(volume.Value - cached.Volume) < 0.005f) &&
+                (muted == null || muted.Value == cached.Muted))
+            {
+                return;
+            }
+
             _levels[key] = cached with
             {
                 Volume = volume ?? cached.Volume,
@@ -136,7 +152,10 @@ public sealed partial class LinuxAudioService : IDisposable
             generation = _generation;
         }
 
-        string defaultName = RunPactl($"get-default-{Noun(kind)}").Trim();
+        // A failed default lookup reads as "no default"; the list is still answered but not kept,
+        // or every @default binding would do nothing until the next device event.
+        bool defaultOk = TryRunPactl(out string defaultOutput, $"get-default-{Noun(kind)}");
+        string defaultName = defaultOutput.Trim();
 
         // A pactl call that failed or timed out (a stuck PulseAudio socket, say) reads as "no
         // devices", which would empty every menu and folder for one refresh. Keep the last list.
@@ -155,7 +174,7 @@ public sealed partial class LinuxAudioService : IDisposable
 
         lock (_cacheLock)
         {
-            if (generation == _generation) _endpoints[kind] = endpoints;
+            if (defaultOk && generation == _generation) _endpoints[kind] = endpoints;
         }
         return endpoints;
     }
