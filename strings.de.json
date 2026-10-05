@@ -124,6 +124,8 @@
   "Install pulseaudio-utils (paplay) or mpv. For mp3 and m4a files mpv, or ffmpeg together with paplay, is needed.": "pulseaudio-utils (paplay) oder mpv installieren. Für mp3- und m4a-Dateien wird mpv oder ffmpeg zusammen mit paplay benötigt.",
 
   "No devices": "Keine Geräte",
+  "Previous": "Vorige",
+  "Next": "Weiter",
   "Output": "Ausgabe",
   "Input": "Eingabe",
   "Volume +": "Lauter",

@@ -66,10 +66,10 @@ internal sealed class TileSlotPainter(Action redraw)
     }
 
     /// <summary>Forgets what was learned about slots and pictures that are no longer shown.</summary>
-    public void Prune(int shownSlots, HashSet<string> usedPictures)
+    public void Prune(HashSet<int> shownSlots, HashSet<string> usedPictures)
     {
         // A slot that is no longer shown must not keep the marquee alive.
-        foreach (int slot in _overflowBySlot.Keys.Where(k => k >= shownSlots).ToList())
+        foreach (int slot in _overflowBySlot.Keys.Where(k => !shownSlots.Contains(k)).ToList())
             _overflowBySlot.TryRemove(slot, out _);
 
         // Pictures of states that are gone must not pile up, least of all every frame of a marquee.

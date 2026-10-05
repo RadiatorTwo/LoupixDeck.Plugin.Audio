@@ -14,6 +14,9 @@ internal sealed record AudioFolderGrid(int Columns, int Rows, int BackSlotIndex)
     /// <summary>Addressable slots — entries outside this range are dropped by the host.</summary>
     public int TotalSlots => Columns * Rows;
 
+    /// <summary>Slots an entry can take: every addressable slot except the back slot.</summary>
+    public int FreeSlots => BackSlotIndex >= 0 && BackSlotIndex < TotalSlots ? TotalSlots - 1 : TotalSlots;
+
     /// <summary>
     /// Fills the grid in reading order, skipping the reserved back slot, and stops when the
     /// grid is full. Returns the slot index for the n-th entry, or -1 when it does not fit.

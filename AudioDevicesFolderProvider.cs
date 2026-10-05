@@ -23,6 +23,7 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
     private readonly IPluginHost _host;
     private readonly MixerTileStyle _style;
     private readonly TileSlotPainter _painter;
+    private readonly FolderPager _pager;
 
     private IReadOnlyList<DeviceRow>? _rows;
     private string? _rendered;
@@ -45,6 +46,7 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
         _aliasStore = aliasStore;
         _visibility = visibility;
         _grid = grid;
+        _pager = new FolderPager(grid);
         _host = host;
         _style = style;
         _painter = new TileSlotPainter(RaiseEntriesChanged);
@@ -90,13 +92,15 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
     {
         List<FolderEntry> entries = new(rows.Count);
         HashSet<string> used = [];
+        HashSet<int> shown = [];
+        FolderPage page = _pager.Layout(rows.Count);
 
         // Fill the slots in reading order, skipping the reserved back-button slot.
-        int index = 0;
-        foreach (DeviceRow row in rows)
+        for (int index = 0; index < page.Count; index++)
         {
-            int slot = _grid.SlotForIndex(index++);
-            if (slot < 0) break; // grid full
+            int slot = _grid.SlotForIndex(index);
+            shown.Add(slot);
+            DeviceRow row = rows[page.First + index];
 
             // The default endpoint is the one in use. It is not a selection, so it gets no frame; its name is
             // drawn bold and bright instead.
@@ -112,7 +116,8 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
                 $"{row.Endpoint.Id}|{row.Percent}|{row.Muted}|{row.Endpoint.IsDefault}|{row.Name}", used));
         }
 
-        _painter.Prune(index, used);
+        _painter.Prune(shown, used);
+        FolderPager.AddNavigation(entries, page, _host, TurnPage);
 
         if (entries.Count == 0)
         {
@@ -126,6 +131,13 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
         }
 
         return entries;
+    }
+
+    private void TurnPage(int delta)
+    {
+        bool changed;
+        lock (_gate) changed = _pager.Turn(delta) && UpdateSnapshot();
+        if (changed) RaiseEntriesChanged();
     }
 
     private static MixerTileGlyph GlyphFor(AudioEndpointKind kind) =>
@@ -206,10 +218,14 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
     private bool UpdateSnapshot()
     {
         IReadOnlyList<DeviceRow> rows = _rows ?? [];
-        _painter.UpdateMarquee(rows.Select(row => (row.Name, row.Endpoint.IsDefault)), _style);
+
+        // Only the current page is on screen, so only its names may need the marquee.
+        FolderPage page = _pager.Layout(rows.Count);
+        _painter.UpdateMarquee(
+            rows.Skip(page.First).Take(page.Count).Select(row => (row.Name, row.Endpoint.IsDefault)), _style);
 
         StringBuilder builder = new();
-        builder.Append(_painter.KeySize).Append('|');
+        builder.Append(_painter.KeySize).Append('|').Append(page.Page).Append('/').Append(page.PageCount).Append('|');
         foreach (DeviceRow row in rows)
         {
             builder.Append(row.Endpoint.Id).Append(':').Append(row.Name).Append(':').Append(row.Percent).Append(':')
