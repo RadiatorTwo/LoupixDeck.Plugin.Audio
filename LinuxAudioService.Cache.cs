@@ -31,7 +31,9 @@ public sealed partial class LinuxAudioService : IDisposable
     private readonly Lock _cacheLock = new();
     private Process? _monitor;
     private CancellationTokenSource? _monitorCts;
-    private long _monitorStartedAt = long.MinValue;
+    // Not long.MinValue: TickCount64 - long.MinValue overflows to a negative number, which reads
+    // as "started just now" and kept the first monitor from ever starting.
+    private long _monitorStartedAt = -MonitorRestartDelayMs;
     private bool _disposed;
 
     /// <summary>Bumped on every event, so a read that raced an event does not store a stale answer.</summary>
