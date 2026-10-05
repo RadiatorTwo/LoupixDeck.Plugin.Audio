@@ -606,9 +606,11 @@ public sealed partial class LinuxAudioService : IAudioService
     /// Runs a process to completion and hands back its stdout. Returns false when it could not
     /// start, ran longer than <see cref="ToolTimeoutMs"/> (it is killed then) or exited non-zero.
     /// <para>
-    /// stdout and stderr are drained asynchronously while the timeout runs. Reading stdout to the end
-    /// first would block until the process exits, so a stuck PulseAudio or PipeWire socket would hang
-    /// the caller for good; and an unread stderr can fill its pipe and stall the process itself.
+    /// stdout and stderr are drained on two dedicated threads while the timeout runs. Reading stdout
+    /// to the end first would block until the process exits, so a stuck PulseAudio or PipeWire socket
+    /// would hang the caller for good; and an unread stderr can fill its pipe and stall the process
+    /// itself. Dedicated threads rather than async reads: the callers are thread-pool threads, and
+    /// under a burst a starved pool would let a successful call time out and read as failed.
     /// </para>
     /// </summary>
     private static bool TryRun(ProcessStartInfo psi, out string stdout)
@@ -622,8 +624,11 @@ public sealed partial class LinuxAudioService : IAudioService
         try
         {
             using Process proc = Process.Start(psi)!;
-            Task<string> output = proc.StandardOutput.ReadToEndAsync();
-            Task<string> error = proc.StandardError.ReadToEndAsync();
+            string output = string.Empty;
+            Thread outputReader = new(() => output = proc.StandardOutput.ReadToEnd()) { IsBackground = true };
+            Thread errorReader = new(() => proc.StandardError.ReadToEnd()) { IsBackground = true };
+            outputReader.Start();
+            errorReader.Start();
 
             if (!proc.WaitForExit(ToolTimeoutMs))
             {
@@ -633,9 +638,10 @@ public sealed partial class LinuxAudioService : IAudioService
             }
 
             // Both pipes close with the process, so the reads finish right after it.
-            if (!Task.WaitAll([output, error], ToolTimeoutMs)) return false;
+            if (!outputReader.Join(ToolTimeoutMs)) return false;
+            errorReader.Join(ToolTimeoutMs);
 
-            stdout = output.Result;
+            stdout = output;
             return proc.ExitCode == 0;
         }
         catch
