@@ -116,8 +116,10 @@ public sealed partial class LinuxAudioService : IAudioService
         return IsSupported ? AddListener(endpointId, onChange) : EmptyDisposable.Instance;
     }
 
-    public void PlayFile(string filePath, string? endpointId)
+    public void PlayFile(string filePath, string? endpointId, float volume)
     {
+        int percent = (int)Math.Round(Math.Clamp(volume, 0f, 1f) * 100f);
+
         string? sink = string.IsNullOrWhiteSpace(endpointId)
             ? null
             : SplitId(endpointId).Name;
@@ -129,8 +131,8 @@ public sealed partial class LinuxAudioService : IAudioService
             extension.Equals(".m4a", StringComparison.OrdinalIgnoreCase);
 
         Process process =
-            (!needsDecoder && HasPaplay.Value ? StartPaplay(filePath, sink) : null)
-            ?? StartDecoder(filePath, sink)
+            (!needsDecoder && HasPaplay.Value ? StartPaplay(filePath, sink, percent) : null)
+            ?? StartDecoder(filePath, sink, percent)
             ?? throw new InvalidOperationException(sink == null
                 ? $"No player available for '{filePath}'. Install pulseaudio-utils (paplay), ffmpeg (ffplay) or mpv."
                 : $"No player able to target the device '{sink}' for '{filePath}'. "
@@ -467,10 +469,15 @@ public sealed partial class LinuxAudioService : IAudioService
         return name.ToLowerInvariant().Replace(',', '_').Replace('(', '_').Replace(')', '_');
     }
 
-    private static Process? StartPaplay(string filePath, string? sink)
+    /// <summary>paplay's --volume takes PulseAudio's linear scale, where 65536 is 100 %.</summary>
+    private static string PaplayVolume(int percent) =>
+        (percent * 65536 / 100).ToString(CultureInfo.InvariantCulture);
+
+    private static Process? StartPaplay(string filePath, string? sink, int percent)
     {
         ProcessStartInfo psi = new("paplay") { UseShellExecute = false, CreateNoWindow = true };
         if (!string.IsNullOrEmpty(sink)) psi.ArgumentList.Add($"--device={sink}");
+        psi.ArgumentList.Add($"--volume={PaplayVolume(percent)}");
         psi.ArgumentList.Add(filePath);
 
         try { return Process.Start(psi); }
@@ -485,20 +492,20 @@ public sealed partial class LinuxAudioService : IAudioService
     /// Rather than play on the wrong device, nothing is started when no such player exists;
     /// the caller turns that into a log entry.
     /// </summary>
-    private static Process? StartDecoder(string filePath, string? sink)
+    private static Process? StartDecoder(string filePath, string? sink, int percent)
     {
         // paplay first: its --device is the selection this plugin already relies on for the
         // formats it can decode itself, so it is the one known to hold on this platform.
         // mpv only starts successfully with a device it accepted, but a build without the
         // pulse output would still start and play elsewhere, so it goes second.
         if (!string.IsNullOrEmpty(sink))
-            return StartFfmpegToPaplay(filePath, sink) ?? StartMpv(filePath, sink);
+            return StartFfmpegToPaplay(filePath, sink, percent) ?? StartMpv(filePath, sink, percent);
 
-        return StartFfplay(filePath) ?? StartMpv(filePath, null);
+        return StartFfplay(filePath, percent) ?? StartMpv(filePath, null, percent);
     }
 
     /// <summary>ffplay takes no device argument, so it is only used for the default device.</summary>
-    private static Process? StartFfplay(string filePath)
+    private static Process? StartFfplay(string filePath, int percent)
     {
         if (!HasFfplay.Value) return null;
 
@@ -507,19 +514,22 @@ public sealed partial class LinuxAudioService : IAudioService
         psi.ArgumentList.Add("-autoexit");
         psi.ArgumentList.Add("-loglevel");
         psi.ArgumentList.Add("quiet");
+        psi.ArgumentList.Add("-volume");
+        psi.ArgumentList.Add(percent.ToString(CultureInfo.InvariantCulture));
         psi.ArgumentList.Add(filePath);
 
         try { return Process.Start(psi); }
         catch { return null; }
     }
 
-    private static Process? StartMpv(string filePath, string? sink)
+    private static Process? StartMpv(string filePath, string? sink, int percent)
     {
         if (!HasMpv.Value) return null;
 
         ProcessStartInfo psi = new("mpv") { UseShellExecute = false, CreateNoWindow = true };
         psi.ArgumentList.Add("--no-video");
         psi.ArgumentList.Add("--really-quiet");
+        psi.ArgumentList.Add($"--volume={percent.ToString(CultureInfo.InvariantCulture)}");
         // "pulse/<sink>" picks mpv's PulseAudio output plus the device. Without it mpv uses
         // its native pipewire output, which has its own device naming and no PULSE_SINK.
         if (!string.IsNullOrEmpty(sink)) psi.ArgumentList.Add($"--audio-device=pulse/{sink}");
@@ -534,13 +544,14 @@ public sealed partial class LinuxAudioService : IAudioService
     /// one device selection on this platform that is not negotiable by the client library.
     /// Raw s16le keeps the pipe seek-free, which a wav header would not.
     /// </summary>
-    private static Process? StartFfmpegToPaplay(string filePath, string sink)
+    private static Process? StartFfmpegToPaplay(string filePath, string sink, int percent)
     {
         if (!HasFfmpeg.Value || !HasPaplay.Value) return null;
 
         string command =
             $"ffmpeg -v quiet -i {ShellQuote(filePath)} -f s16le -ar 48000 -ac 2 - "
-            + $"| paplay --raw --rate=48000 --channels=2 --format=s16le --device={ShellQuote(sink)}";
+            + "| paplay --raw --rate=48000 --channels=2 --format=s16le "
+            + $"--volume={PaplayVolume(percent)} --device={ShellQuote(sink)}";
 
         ProcessStartInfo psi = new("/bin/sh") { UseShellExecute = false, CreateNoWindow = true };
         psi.ArgumentList.Add("-c");

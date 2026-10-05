@@ -47,8 +47,10 @@ public interface IAudioService
     /// Starts playing a file on the given render endpoint, or on the system default when
     /// <paramref name="endpointId"/> is null. Returns immediately; every call starts its own
     /// playback, so repeated presses overlap. Throws when the playback cannot be started.
+    /// <paramref name="volume"/> is the 0..1 level of this one sound (clamped internally); it
+    /// leaves the device and every other sound untouched.
     /// </summary>
-    void PlayFile(string filePath, string? endpointId);
+    void PlayFile(string filePath, string? endpointId, float volume);
 
     /// <summary>Stops and releases every playback started by <see cref="PlayFile"/>.</summary>
     void StopAllPlayback();
