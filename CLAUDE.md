@@ -20,9 +20,36 @@ Diese Ordner liegen lokal und enthalten alles, was zum Verständnis und zur Entw
 - **Assembly-/Ordnername:** `LoupixDeck.Plugin.Audio` (Konvention: `LoupixDeck.Plugin.<Name>`)
 - **Namespace:** `LoupixDeck.Plugin.Audio`
 - **Plugin-Klasse:** `AudioPlugin` erbt von `LoupixPlugin`
-- **Manifest:** `plugin.json` (id = `audio`, sdkVersion = `1.25`, entryAssembly = `LoupixDeck.Plugin.Audio.dll`)
+- **Manifest:** `plugin.json` (id = `audio`, sdkVersion = `1.28`, entryAssembly = `LoupixDeck.Plugin.Audio.dll`)
+- **Übersetzungen:** `strings.de.json` neben `plugin.json`, per csproj ins Output kopiert (siehe unten).
 - **Target Framework:** `net9.0`
-- **SDK-Paket:** `LoupixDeck.PluginSdk` 1.25.0 von nuget.org, mit `<ExcludeAssets>runtime</ExcludeAssets>` — der Host stellt die SDK-DLL bereit, nie mit ausliefern.
+- **SDK-Paket:** `LoupixDeck.PluginSdk` 1.28.0 von nuget.org, mit `<ExcludeAssets>runtime</ExcludeAssets>` — der Host stellt die SDK-DLL bereit, nie mit ausliefern.
+- **NAudio:** das Meta-Paket `NAudio` bleibt, weil `AudioFileReader` in `NAudio.dll` steckt und
+  `NAudio.WinMM` braucht (ACM für komprimierte WAVs). `NAudio.Asio` und `NAudio.Midi` referenziert
+  nichts; sie sind per `ExcludeAssets="all"` aus dem Release genommen.
+
+## Dateiaufteilung
+
+Die drei großen Klassen sind `partial` und nach Thema auf Dateien verteilt:
+
+- `AudioPlugin.cs` (Lifecycle, Requirements, gemeinsame Helfer) plus `.Menu`, `.Settings`,
+  `.Presets`, `.Migrations`. `UnsupportedAudioService.cs` ist der Platzhalter für andere Plattformen.
+- `WindowsAudioService.cs` (Endpoints, Lautstärke, Default-Gerät) plus `.Sessions` (Mixer,
+  Vordergrund-App), `.Playback`, `.Notifications` (`VolumeSubscription`, `NotificationPump`),
+  `.NativeMethods`.
+- `LinuxAudioService.cs` (Requirements, Endpoints, Lautstärke, Default-Gerät) plus `.Cache`
+  (geteilter `pactl subscribe`-Monitor und die Caches dahinter), `.Sessions`, `.Playback`,
+  `.Foreground` (xprop), `.Processes` (pactl-/Tool-Aufrufe mit Timeout).
+
+## Kacheln zeichnen
+
+Mixer- und Geräteordner zeichnen ihre Kacheln selbst (`Rendering\`): `MixerTileRenderer` malt
+Icon, Pegel und Namen in vier Layouts, wahlweise mit eigener 5x7-Bitmapschrift
+(`BitmapFont5x7`) oder mit der Schrift des Hosts. `TileSlotPainter` liefert die Kachel an den Host:
+ab SDK 1.28 über `FolderEntry.Render` (der Host gibt eine Zeichenfläche in echter Tastengröße),
+auf älteren Hosts als 90x90-PNG (`PngEncoder`), das der Host skaliert. `FolderEntry.Render` wird
+nur in einer `NoInlining`-Methode angefasst, damit der JIT das Member auf einem alten Host nie
+auflösen muss. Der Painter treibt außerdem das Lauftext-Scrollen überlanger Namen.
 
 ## Build & Deploy
 
