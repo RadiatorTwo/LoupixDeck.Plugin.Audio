@@ -44,8 +44,9 @@ volume step is editable per assignment.
 On a touch key `Audio.MuteToggle` and `Audio.AppMuteToggle` show their state
 live when the `showState` parameter is on: a speaker or microphone in white with
 the level below it, crossed out in red with "Muted" while muted. A newly
-assigned toggle has it on. A toggle assigned before the parameter existed keeps
-its static icon until `showState` is switched on in its settings.
+assigned toggle has it on. The key is drawn on a transparent background, so the
+wallpaper shows through. A toggle assigned before the parameter existed keeps
+its static icon; assign it again to get the live look.
 
 `Audio.Mute` / `Audio.Unmute` / `Audio.SetMute` — set a device's mute state
 instead of toggling it, so running the command twice does the same thing as

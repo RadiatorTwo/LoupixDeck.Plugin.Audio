@@ -287,7 +287,7 @@ internal sealed class AudioMuteToggleCommand(IAudioService audio) : IDisplayImag
         DisplayName = "Audio: Mute Toggle",
         Group = "Audio",
         Icon = AudioButtonLayouts.Mute,
-        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Mute, "Mute"),
+        ButtonLayout = AudioMuteStateKey.Layout,
         Description = "Toggle mute for the device",
         HiddenFromMenu = true,
         ParameterTemplate = "({deviceId},{showState})",
@@ -311,7 +311,8 @@ internal sealed class AudioMuteToggleCommand(IAudioService audio) : IDisplayImag
 
     public bool RenderImage(CommandContext ctx, IRenderCanvas canvas)
     {
-        if (!AudioMuteStateKey.Enabled(ctx)) return false;
+        if (AudioMuteStateKey.IsLegacy(ctx)) return false;
+        if (!AudioMuteStateKey.Enabled(ctx)) return AudioMuteStateKey.DrawStatic(canvas, ctx.Host.Tr("Mute"));
 
         try
         {
