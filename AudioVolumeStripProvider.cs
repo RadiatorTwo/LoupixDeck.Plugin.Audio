@@ -4,9 +4,10 @@ namespace LoupixDeck.Plugin.Audio;
 
 /// <summary>
 /// Side-strip provider that shows the volume of the three dials adjacent to the strip
-/// as three large vertical bars. Each bar follows the audio device that its rotary
-/// actually controls — resolved from the rotary's bound <c>Audio.Volume*</c> command —
-/// so it stays in sync with the dial assignment without separate configuration.
+/// as three large vertical bars. Each bar follows the audio device or application that its
+/// rotary actually controls — resolved from the rotary's bound <c>Audio.Volume*</c> or
+/// <c>Audio.AppVolume*</c> command — so it stays in sync with the dial assignment without
+/// separate configuration.
 /// </summary>
 internal sealed class AudioVolumeStripProvider(IAudioService audio, IPluginSettings settings, AudioAliasStore aliasStore,
     IPluginHost host)
@@ -74,6 +75,13 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
         public float Volume;
         public bool Muted;
         public IDisposable? Subscription;
+
+        /// <summary>
+        /// The application a per-app dial controls, as bound (the foreground sentinel included), or null for a
+        /// device dial. Such a dial has no endpoint; its level comes from <see cref="PullValue"/> and its mute
+        /// state from the app's session.
+        /// </summary>
+        public string? AppId;
 
         /// <summary>
         /// Reads the level from the adjustment command bound to this dial. That command owns
@@ -158,7 +166,8 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
                 Fallback = deviceId != null && names.TryGetValue(deviceId, out var friendly)
                     ? friendly : string.Empty,
                 DialNumber = rotary.Index + 1,
-                PullValue = rotary.GetValue
+                PullValue = rotary.GetValue,
+                AppId = boundId == null ? AudioStripCommandParser.ExtractAppId(rotary) : null
             };
 
             if (bar.DeviceId != null)
@@ -217,19 +226,71 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
         FollowDefaults();
 
         // Nothing audio-related on this side → let the host fall back to dial labels.
-        if (_bars.Count == 0 || _bars.All(b => b.DeviceId == null))
+        if (_bars.Count == 0 || _bars.All(b => b.DeviceId == null && b.AppId == null))
             return false;
 
         var horizontal = _settings.Get(AudioVolumeStripProvider.HorizontalLayoutKey, false);
-        AudioStripRenderer.Render(_bars.Select(b => new AudioStripRenderer.BarView(
-            DisplayName(b), b.DeviceId != null, b.Level, b.Muted)).ToList(),
-            canvas, horizontal);
+        AudioStripRenderer.Render(_bars.Select(View).ToList(), canvas, horizontal);
         return true;
     }
 
     /// <summary>
+    /// What one bar shows. A device bar draws its endpoint's level. An app bar draws the level of the app's
+    /// session; an app that is not playing has none and draws as a dial without a value.
+    /// </summary>
+    private AudioStripRenderer.BarView View(Bar bar)
+    {
+        if (bar.DeviceId != null)
+            return new AudioStripRenderer.BarView(DisplayName(bar), true, bar.Level, bar.Muted);
+
+        if (bar.AppId == null)
+            return new AudioStripRenderer.BarView(DisplayName(bar), false, 0f, false);
+
+        string? appId = ResolveAppId(bar);
+        float? level = null;
+        bool muted = false;
+        if (appId != null)
+        {
+            try
+            {
+                // The dial's own command owns the level when it is an adjustment command; a dial bound to the
+                // older AppVolumeUp/Down commands has none, so the session is asked instead.
+                AdjustmentValue? value = bar.PullValue?.Invoke();
+                level = value.HasValue
+                    ? Math.Clamp((float)value.Value.Normalized, 0f, 1f)
+                    : _audio.GetSessionVolume(null, appId);
+                muted = level != null && (_audio.GetSessionMute(null, appId) ?? false);
+            }
+            catch
+            {
+                // Runs on the render path: an app that quit between the frame and the query costs its bar.
+                level = null;
+            }
+        }
+
+        return new AudioStripRenderer.BarView(DisplayName(bar, appId), level != null, level ?? 0f, muted);
+    }
+
+    /// <summary>The app the bar means right now: the foreground sentinel names whichever app is in front.</summary>
+    private string? ResolveAppId(Bar bar)
+    {
+        if (bar.AppId == null) return null;
+
+        try
+        {
+            return string.Equals(bar.AppId, AudioAppParameter.ForegroundAppId, StringComparison.Ordinal)
+                ? _audio.GetForegroundAppId()
+                : bar.AppId;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Draws one segment in the host's segmented mode: the single band for the dial at
-    /// <paramref name="rotaryIndex"/>, or <c>false</c> when that dial controls no audio device so
+    /// <paramref name="rotaryIndex"/>, or <c>false</c> when that dial controls no device or app so
     /// the host draws its normal label. Always a stacked band (the whole-strip vertical/horizontal
     /// layout setting does not apply to an individual segment).
     /// </summary>
@@ -242,12 +303,10 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
 
         var bar = _bars[rotaryIndex];
         if (bar.FollowsDefault) FollowDefault(bar, fresh: false);
-        if (bar.DeviceId == null)
+        if (bar.DeviceId == null && bar.AppId == null)
             return false;
 
-        AudioStripRenderer.RenderBand(
-            new AudioStripRenderer.BarView(DisplayName(bar), true, bar.Level, bar.Muted),
-            canvas);
+        AudioStripRenderer.RenderBand(View(bar), canvas);
         return true;
     }
 
@@ -329,10 +388,14 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
     /// <summary>Picks the best display name for a dial, resolved at render time so an alias
     /// rename repaints live: an explicit rotary label wins, otherwise the user-defined alias
     /// (falling back to the device's friendly name), otherwise a generic dial number.</summary>
-    private string DisplayName(Bar bar)
+    private string DisplayName(Bar bar, string? appId = null)
     {
         if (!string.IsNullOrWhiteSpace(bar.Label))
             return bar.Label;
+
+        // An app dial is named after its app: the executable name, which is what the binding stores.
+        if (!string.IsNullOrWhiteSpace(appId))
+            return appId;
 
         if (bar.DeviceId != null)
         {
@@ -358,7 +421,12 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
             : Math.Clamp((int)(x / (_width / (float)_bars.Count)), 0, _bars.Count - 1);
         var bar = _bars[index];
         if (bar.FollowsDefault) FollowDefault(bar, fresh: true);
-        if (bar.DeviceId == null) return;
+
+        if (bar.DeviceId == null)
+        {
+            ToggleAppMute(bar);
+            return;
+        }
 
         try
         {
@@ -368,6 +436,23 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
             StripChanged?.Invoke(this, EventArgs.Empty);
         }
         catch { /* endpoint gone */ }
+    }
+
+    /// <summary>Tapping an app bar mutes the app, as pressing its dial does.</summary>
+    private void ToggleAppMute(Bar bar)
+    {
+        string? appId = ResolveAppId(bar);
+        if (appId == null) return;
+
+        try
+        {
+            bool? muted = _audio.GetSessionMute(null, appId);
+            if (muted == null) return; // not playing
+
+            _audio.SetSessionMute(null, appId, !muted.Value);
+            StripChanged?.Invoke(this, EventArgs.Empty);
+        }
+        catch { /* app gone */ }
     }
 
     /// <summary>Swiping the strip still pages this side's rotary pages.</summary>
@@ -404,23 +489,31 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
 internal static class AudioStripCommandParser
 {
     // Audio.Volume first: it is what a dial is bound to now, and a migrated dial carries
-    // nothing else. Audio.AppVolume is deliberately absent - its first parameter is an app id,
-    // not an endpoint, so a dial bound to it has no device and the bar correctly declines.
+    // nothing else. The app commands are kept apart: their first parameter is an app id,
+    // not an endpoint.
     private static readonly string[] VolumeCommands =
         ["Audio.Volume", "Audio.VolumeUp", "Audio.VolumeDown", "Audio.MuteToggle"];
 
-    public static string? ExtractDeviceId(SideStripRotary rotary)
+    private static readonly string[] AppVolumeCommands =
+        ["Audio.AppVolume", "Audio.AppVolumeUp", "Audio.AppVolumeDown", "Audio.AppMuteToggle"];
+
+    public static string? ExtractDeviceId(SideStripRotary rotary) => Extract(rotary, VolumeCommands);
+
+    /// <summary>The app id a per-app dial controls, as bound; the foreground sentinel is kept as it is.</summary>
+    public static string? ExtractAppId(SideStripRotary rotary) => Extract(rotary, AppVolumeCommands);
+
+    private static string? Extract(SideStripRotary rotary, string[] commands)
     {
-        return FromCommand(rotary.RightCommand)
-               ?? FromCommand(rotary.LeftCommand)
-               ?? FromCommand(rotary.PressCommand);
+        return FromCommand(rotary.RightCommand, commands)
+               ?? FromCommand(rotary.LeftCommand, commands)
+               ?? FromCommand(rotary.PressCommand, commands);
     }
 
-    private static string? FromCommand(string command)
+    private static string? FromCommand(string command, string[] commands)
     {
         if (string.IsNullOrEmpty(command)) return null;
 
-        foreach (var name in VolumeCommands)
+        foreach (var name in commands)
         {
             var marker = name + "(";
             var open = command.IndexOf(marker, StringComparison.Ordinal);
