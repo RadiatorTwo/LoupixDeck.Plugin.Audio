@@ -210,7 +210,7 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
         return new VolumeSubscription(device, enumerator, handler, pump);
     }
 
-    public void PlayFile(string filePath, string? endpointId)
+    public void PlayFile(string filePath, string? endpointId, float volume)
     {
         var enumerator = new MMDeviceEnumerator();
         MMDevice device;
@@ -233,7 +233,7 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
         Playback playback = new(device, enumerator);
         try
         {
-            playback.Start(filePath, OnPlaybackFinished);
+            playback.Start(filePath, volume, OnPlaybackFinished);
         }
         catch
         {
@@ -691,10 +691,12 @@ public sealed class WindowsAudioService : IAudioService, IDisposable
         /// <summary>The file this playback was started with; empty until <see cref="Start"/>.</summary>
         public string FilePath { get; private set; } = string.Empty;
 
-        public void Start(string filePath, Action<Playback> onFinished)
+        public void Start(string filePath, float volume, Action<Playback> onFinished)
         {
             FilePath = filePath;
-            _reader = new AudioFileReader(filePath);
+            // The reader scales the samples itself, so the level holds for this sound only and
+            // the device, the session and every other sound keep theirs.
+            _reader = new AudioFileReader(filePath) { Volume = Math.Clamp(volume, 0f, 1f) };
 
             // useEventSync: false — the non-event-driven path runs its own thread and needs
             // no message pump, which Execute's background thread does not have.

@@ -1,3 +1,4 @@
+using System.Globalization;
 using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Audio;
@@ -14,11 +15,19 @@ internal sealed class AudioPlaySoundCommand(
     IPluginHost host) : IPluginCommand
 {
     /// <summary>
-    /// Name of the single parameter carrying the sound token. Exactly one parameter on
-    /// purpose: the host drops empty pieces when splitting a parameter list, which would
-    /// shift the positions of any following parameter.
+    /// Name of the first parameter, carrying the sound token. It must stay first: the host
+    /// drops empty pieces when splitting a parameter list, which shifts the positions of the
+    /// parameters after an empty one, and the token is never empty.
     /// </summary>
     public const string SoundParameterName = "sound";
+
+    /// <summary>
+    /// Name of the second parameter, the sound's own playback level in percent. A binding
+    /// saved before it existed has no second parameter and plays at full level, as before.
+    /// </summary>
+    public const string VolumeParameterName = "volume";
+
+    private const int DefaultVolumePercent = 100;
 
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -29,11 +38,32 @@ internal sealed class AudioPlaySoundCommand(
         ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Sound, null),
         Description = "Play an assigned audio file on the configured device",
         HiddenFromMenu = true,
-        ParameterTemplate = "({sound})",
-        // No DefaultValue here: a command-defined default outranks the value the menu
-        // supplies (see CommandBuilder), which would discard the picked file.
-        Parameters = [new CommandParameter(SoundParameterName, typeof(string))]
+        ParameterTemplate = "({sound},{volume})",
+        Parameters =
+        [
+            // No DefaultValue here: a command-defined default outranks the value the menu
+            // supplies (see CommandBuilder), which would discard the picked file.
+            new CommandParameter(SoundParameterName, typeof(string)),
+            // The menu supplies no level, so this default is what a new binding starts with.
+            new CommandParameter(VolumeParameterName, typeof(int))
+            {
+                DefaultValue = DefaultVolumePercent.ToString(CultureInfo.InvariantCulture)
+            }
+        ]
     };
+
+    /// <summary>The binding's level as a 0..1 scalar; full level when absent or not a number.</summary>
+    private static float ResolveVolume(string[] parameters)
+    {
+        int percent = DefaultVolumePercent;
+        if (parameters.Length > 1 &&
+            int.TryParse(parameters[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
+        {
+            percent = Math.Clamp(parsed, 0, 100);
+        }
+
+        return percent / 100f;
+    }
 
     public ButtonTargets SupportedTargets =>
         ButtonTargets.SimpleButton | ButtonTargets.TouchButton | ButtonTargets.RotaryEncoder;
@@ -58,7 +88,7 @@ internal sealed class AudioPlaySoundCommand(
             // own there is nothing to stop, and the press starts it again.
             if (library.StopOnSecondPress && audio.StopFile(path)) return Task.CompletedTask;
 
-            audio.PlayFile(path, playbackDevices.SelectedId);
+            audio.PlayFile(path, playbackDevices.SelectedId, ResolveVolume(parameters));
         }
         catch (Exception ex)
         {
