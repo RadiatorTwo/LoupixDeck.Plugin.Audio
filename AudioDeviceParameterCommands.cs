@@ -18,6 +18,10 @@ internal static class AudioDeviceParameter
     /// </summary>
     public const string DefaultDeviceId = "@default";
 
+    /// <summary>The capture counterpart of <see cref="DefaultDeviceId"/>: the current default
+    /// input device, so a microphone button keeps working when the microphone changes.</summary>
+    public const string DefaultInputDeviceId = "@defaultInput";
+
     public static string? ResolveDeviceId(CommandContext ctx) => ResolveDeviceId(ctx, null);
 
     public static string? ResolveDeviceId(CommandContext ctx, IAudioService? audio)
@@ -31,23 +35,28 @@ internal static class AudioDeviceParameter
     }
 
     /// <summary>
-    /// Expands the default-device sentinel to the endpoint it currently means. Every consumer
-    /// that talks to the audio backend has to go through this: <c>@default</c> is not an
-    /// endpoint id, so passing it on unresolved silently reads and writes nothing.
+    /// Expands a default-device sentinel to the endpoint it currently means. Every consumer
+    /// that talks to the audio backend has to go through this: <c>@default</c> and
+    /// <c>@defaultInput</c> are not endpoint ids, so passing them on unresolved silently reads
+    /// and writes nothing.
     /// </summary>
     public static string? ResolveEndpointId(string? id, IAudioService? audio)
     {
         if (string.IsNullOrWhiteSpace(id)) return null;
 
-        if (!string.Equals(id, DefaultDeviceId, StringComparison.Ordinal))
-            return id;
+        return SentinelKind(id) is { } kind ? ResolveDefaultId(kind, audio) : id;
+    }
 
-        // Render only: the default-device sentinel exists for "the speakers I am listening on".
-        return ResolveDefaultRenderId(audio);
+    /// <summary>The endpoint kind a default-device sentinel stands for, or null for a real endpoint id.</summary>
+    private static AudioEndpointKind? SentinelKind(string? id)
+    {
+        if (string.Equals(id, DefaultDeviceId, StringComparison.Ordinal)) return AudioEndpointKind.Render;
+        if (string.Equals(id, DefaultInputDeviceId, StringComparison.Ordinal)) return AudioEndpointKind.Capture;
+        return null;
     }
 
     /// <summary>
-    /// The current default render endpoint, memoised for <see cref="DefaultCacheMs"/>.
+    /// The current default endpoint of one kind, memoised for <see cref="DefaultCacheMs"/>.
     /// <para>
     /// This runs on the side-strip render path: a dial's adjustment value is pulled once per
     /// frame per dial, and both the host's indicator and the plugin's own bar pull it. Asking
@@ -58,32 +67,34 @@ internal static class AudioDeviceParameter
     /// window collapses the several pulls of one frame onto a single backend call.
     /// </para>
     /// </summary>
-    private static string? ResolveDefaultRenderId(IAudioService? audio)
+    private static string? ResolveDefaultId(AudioEndpointKind kind, IAudioService? audio)
     {
         if (audio == null) return null;
 
         lock (_defaultLock)
         {
-            if (_defaultRenderId != null && Environment.TickCount64 - _defaultRenderTick < DefaultCacheMs)
-                return _defaultRenderId;
+            if (_defaultIds.TryGetValue(kind, out var cached) &&
+                Environment.TickCount64 - cached.Tick < DefaultCacheMs)
+            {
+                return cached.Id;
+            }
 
-            string? resolved = audio.GetDefaultEndpointId(AudioEndpointKind.Render);
+            string? resolved = audio.GetDefaultEndpointId(kind);
             if (resolved == null) return null;
 
-            _defaultRenderId = resolved;
-            _defaultRenderTick = Environment.TickCount64;
+            _defaultIds[kind] = (resolved, Environment.TickCount64);
             return resolved;
         }
     }
 
     /// <summary>
-    /// Drops the memoised default endpoint, so the next resolution asks the backend again.
+    /// Drops the memoised default endpoints, so the next resolution asks the backend again.
     /// Called by a consumer that just learned the default may have moved and needs the new
     /// endpoint now rather than at the end of the window.
     /// </summary>
     public static void InvalidateDefaultEndpoint()
     {
-        lock (_defaultLock) _defaultRenderId = null;
+        lock (_defaultLock) _defaultIds.Clear();
     }
 
     /// <summary>How long a resolved default endpoint is reused. Short enough that a default
@@ -92,12 +103,10 @@ internal static class AudioDeviceParameter
     private const long DefaultCacheMs = 1000;
 
     private static readonly object _defaultLock = new();
-    private static string? _defaultRenderId;
-    private static long _defaultRenderTick;
+    private static readonly Dictionary<AudioEndpointKind, (string Id, long Tick)> _defaultIds = [];
 
-    /// <summary>True when the bound id is the default-device sentinel rather than an endpoint.</summary>
-    public static bool IsDefaultSentinel(string? id) =>
-        string.Equals(id, DefaultDeviceId, StringComparison.Ordinal);
+    /// <summary>True when the bound id is a default-device sentinel rather than an endpoint.</summary>
+    public static bool IsDefaultSentinel(string? id) => SentinelKind(id) != null;
 
     /// <summary>Resolves the configured volume step (parameter index 1, in percent) as a
     /// 0..1 scalar, falling back to <see cref="DefaultStepPercent"/> when absent/invalid.</summary>
@@ -155,6 +164,35 @@ internal static class AudioDeviceParameter
         }
         return percent / 100f;
     }
+
+    public const string MutedName = "muted";
+
+    /// <summary>Device id plus the mute state to set. Muting is the pre-filled choice, as it is
+    /// what a button bound to "set mute" usually does.</summary>
+    public static IReadOnlyList<CommandParameter> SetMuteParameters { get; } =
+    [
+        new CommandParameter(DeviceIdName, typeof(string)),
+        new CommandParameter(MutedName, typeof(bool)) { DefaultValue = "True" }
+    ];
+
+    /// <summary>Resolves the mute state to set (parameter index 1), muting when absent or unreadable.</summary>
+    public static bool ResolveMuted(CommandContext ctx)
+    {
+        string[]? p = ctx.Parameters;
+        return p is not { Length: > 1 } || !bool.TryParse(p[1], out bool parsed) || parsed;
+    }
+
+    /// <summary>Sets the device's mute flag and says so on the dial. Unlike the toggle it does the
+    /// same thing however often it runs, which is what a macro or multi-action needs.</summary>
+    public static Task SetMute(CommandContext ctx, IAudioService audio, string commandName, bool muted) =>
+        Guard(ctx, commandName, () =>
+        {
+            string? id = ResolveDeviceId(ctx, audio);
+            if (id == null) return;
+
+            audio.SetMute(id, muted);
+            ShowOverlay(ctx, muted ? "🔇" : $"🔊 {FormatVolume(audio.GetVolume(id))}");
+        });
 
     public static void ShowOverlay(CommandContext ctx, string text)
     {
@@ -266,6 +304,72 @@ internal sealed class AudioMuteToggleCommand(IAudioService audio) : IPluginComma
         audio.SetMute(id, muted);
         AudioDeviceParameter.ShowOverlay(ctx, muted ? "🔇" : $"🔊 {AudioDeviceParameter.FormatVolume(audio.GetVolume(id))}");
     });
+}
+
+internal sealed class AudioMuteCommand(IAudioService audio) : IPluginCommand
+{
+    public CommandDescriptor Descriptor { get; } = new()
+    {
+        CommandName = "Audio.Mute",
+        DisplayName = "Audio: Mute",
+        Group = "Audio",
+        Icon = AudioButtonLayouts.Mute,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Mute, "Mute"),
+        Description = "Mute the device",
+        HiddenFromMenu = true,
+        ParameterTemplate = "({deviceId})",
+        Parameters = AudioDeviceParameter.DeviceIdParameters
+    };
+
+    public ButtonTargets SupportedTargets =>
+        ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
+
+    public Task Execute(CommandContext ctx) =>
+        AudioDeviceParameter.SetMute(ctx, audio, Descriptor.CommandName, true);
+}
+
+internal sealed class AudioUnmuteCommand(IAudioService audio) : IPluginCommand
+{
+    public CommandDescriptor Descriptor { get; } = new()
+    {
+        CommandName = "Audio.Unmute",
+        DisplayName = "Audio: Unmute",
+        Group = "Audio",
+        Icon = AudioButtonLayouts.Unmute,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Unmute, "Unmute"),
+        Description = "Unmute the device",
+        HiddenFromMenu = true,
+        ParameterTemplate = "({deviceId})",
+        Parameters = AudioDeviceParameter.DeviceIdParameters
+    };
+
+    public ButtonTargets SupportedTargets =>
+        ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
+
+    public Task Execute(CommandContext ctx) =>
+        AudioDeviceParameter.SetMute(ctx, audio, Descriptor.CommandName, false);
+}
+
+internal sealed class AudioSetMuteCommand(IAudioService audio) : IPluginCommand
+{
+    public CommandDescriptor Descriptor { get; } = new()
+    {
+        CommandName = "Audio.SetMute",
+        DisplayName = "Audio: Set Mute",
+        Group = "Audio",
+        Icon = AudioButtonLayouts.Mute,
+        ButtonLayout = AudioButtonLayouts.IconWithCaption(AudioButtonLayouts.Mute, "Set Mute"),
+        Description = "Mute or unmute the device",
+        HiddenFromMenu = true,
+        ParameterTemplate = "({deviceId},{muted})",
+        Parameters = AudioDeviceParameter.SetMuteParameters
+    };
+
+    public ButtonTargets SupportedTargets =>
+        ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
+
+    public Task Execute(CommandContext ctx) =>
+        AudioDeviceParameter.SetMute(ctx, audio, Descriptor.CommandName, AudioDeviceParameter.ResolveMuted(ctx));
 }
 
 internal sealed class AudioSetVolumeCommand(IAudioService audio) : IPluginCommand

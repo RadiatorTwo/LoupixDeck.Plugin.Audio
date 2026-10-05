@@ -18,6 +18,7 @@ internal static class AudioButtonLayouts
     public const string VolumeDown = "\U000F075E";    // mdi-volume-minus
     public const string VolumeSet = "\U000F0580";     // mdi-volume-medium
     public const string Mute = "\U000F075F";          // mdi-volume-mute
+    public const string Unmute = "\U000F057E";        // mdi-volume-high
     public const string DefaultDevice = "\U000F05E0"; // mdi-check-circle
     public const string Sound = "\U000F075A";         // mdi-music
     public const string Stop = "\U000F04DB";          // mdi-stop

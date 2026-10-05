@@ -30,6 +30,18 @@ set the look of the picker it opens.
 device, assigned from the command menu (Audio → Output/Input Devices). The
 volume step is editable per assignment.
 
+`Audio.Mute` / `Audio.Unmute` / `Audio.SetMute` — set a device's mute state
+instead of toggling it, so running the command twice does the same thing as
+running it once. That is what a macro or multi-action needs. `Audio.SetMute`
+takes the state (`muted`, on by default) as a parameter. The application
+counterparts are `Audio.AppMute` / `Audio.AppUnmute` / `Audio.AppSetMute`.
+
+The first entry under Output Devices and Input Devices, "Default Output" and
+"Default Input", follows whatever device is the system default at the moment
+the command runs (the binding stores `@default` or `@defaultInput` instead of a
+device id). "Mic Mute" at the top of the menu is a mute toggle bound to the
+default input, so it keeps working when the microphone changes.
+
 `Audio.Mixer` — open a per-application mixer on the touch screen. Tap a tile
 to select an application, the first rotary then adjusts it and its press mutes.
 It lists the applications playing on **any** output device, not just the
