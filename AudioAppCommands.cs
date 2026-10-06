@@ -69,6 +69,32 @@ internal static class AudioAppParameter
     }
 
     /// <summary>
+    /// The app's name as the mixer shows it ("Google Chrome" rather than "chrome"), for the overlays.
+    /// </summary>
+    public static string NameOf(CommandContext ctx, AudioSessionInfo session, AppIdentityCache identity) =>
+        AudioSessionNames.Display(session, identity.Resolve(session), ctx.Host);
+
+    /// <summary>
+    /// The app's mixer entry: volume, mute and name from one walk over the sessions, where asking
+    /// for volume and mute separately walks them twice. Null when the app is not playing.
+    /// </summary>
+    public static AudioSessionInfo? FindSession(IAudioService audio, string appId) =>
+        audio.GetSessions(null).FirstOrDefault(s => string.Equals(s.AppId, appId, StringComparison.Ordinal));
+
+    /// <summary>
+    /// The bound app's session, reporting on the dial when there is no app or it is not playing.
+    /// </summary>
+    public static AudioSessionInfo? ResolveSessionOrReport(CommandContext ctx, IAudioService audio)
+    {
+        string? appId = ResolveAppIdOrReport(ctx, audio);
+        if (appId == null) return null;
+
+        AudioSessionInfo? session = FindSession(audio, appId);
+        if (session == null) ReportNoSession(ctx, appId);
+        return session;
+    }
+
+    /// <summary>
     /// Says that the app has no audio session to change, which is what a resolved app that is not
     /// playing anything looks like from here.
     /// </summary>
@@ -84,21 +110,27 @@ internal static class AudioAppParameter
     ];
 
     /// <summary>Sets the mute flag of every session of the bound app. Idempotent, unlike the toggle.</summary>
-    public static Task SetMute(CommandContext ctx, IAudioService audio, string commandName, bool muted) =>
+    public static Task SetMute(CommandContext ctx, IAudioService audio, AppIdentityCache identity,
+        string commandName, bool muted) =>
         AudioDeviceParameter.Guard(ctx, commandName, () =>
         {
-            string? appId = ResolveAppIdOrReport(ctx, audio);
-            if (appId == null) return;
+            AudioSessionInfo? session = ResolveSessionOrReport(ctx, audio);
+            if (session == null) return;
 
-            if (audio.GetSessionMute(null, appId) == null)
-            {
-                ReportNoSession(ctx, appId);
-                return;
-            }
-
-            audio.SetSessionMute(null, appId, muted);
-            AudioDeviceParameter.ShowOverlay(ctx, muted ? "🔇" : $"🔊 {appId}");
+            audio.SetSessionMute(null, session.AppId, muted);
+            AudioDeviceParameter.ShowOverlay(ctx, muted ? "🔇" : $"🔊 {NameOf(ctx, session, identity)}");
         });
+
+    /// <summary>
+    /// The step (parameter index 1, percent) as a 0..1 scalar. A missing, unreadable or zero step
+    /// falls back to <see cref="DefaultStepPercent"/>, as the device commands do: a step of 0 would
+    /// make the command do nothing, which is never what the binding meant.
+    /// </summary>
+    public static float ResolveStepScalar(CommandContext ctx)
+    {
+        int percent = Math.Abs(ResolveInt(ctx, DefaultStepPercent));
+        return (percent == 0 ? DefaultStepPercent : percent) / 100f;
+    }
 
     public static int ResolveInt(CommandContext ctx, int fallback)
     {
@@ -112,7 +144,7 @@ internal static class AudioAppParameter
     }
 }
 
-internal sealed class AudioAppVolumeUpCommand(IAudioService audio) : IPluginCommand
+internal sealed class AudioAppVolumeUpCommand(IAudioService audio, AppIdentityCache identity) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -132,24 +164,17 @@ internal sealed class AudioAppVolumeUpCommand(IAudioService audio) : IPluginComm
 
     public Task Execute(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
-        string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
-        if (appId == null) return;
+        AudioSessionInfo? session = AudioAppParameter.ResolveSessionOrReport(ctx, audio);
+        if (session == null) return;
 
-        float? current = audio.GetSessionVolume(null, appId);
-        if (current == null)
-        {
-            AudioAppParameter.ReportNoSession(ctx, appId);
-            return;
-        }
-
-        float step = Math.Abs(AudioAppParameter.ResolveInt(ctx, AudioAppParameter.DefaultStepPercent)) / 100f;
-        float next = Math.Clamp(current.Value + step, 0f, 1f);
-        audio.SetSessionVolume(null, appId, next);
-        AudioDeviceParameter.ShowOverlay(ctx, $"{appId} {AudioDeviceParameter.FormatVolume(next)}");
+        float step = AudioAppParameter.ResolveStepScalar(ctx);
+        float next = Math.Clamp(session.Volume + step, 0f, 1f);
+        audio.SetSessionVolume(null, session.AppId, next);
+        AudioDeviceParameter.ShowOverlay(ctx, $"{AudioAppParameter.NameOf(ctx, session, identity)} {AudioDeviceParameter.FormatVolume(next)}");
     });
 }
 
-internal sealed class AudioAppVolumeDownCommand(IAudioService audio) : IPluginCommand
+internal sealed class AudioAppVolumeDownCommand(IAudioService audio, AppIdentityCache identity) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -169,24 +194,17 @@ internal sealed class AudioAppVolumeDownCommand(IAudioService audio) : IPluginCo
 
     public Task Execute(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
-        string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
-        if (appId == null) return;
+        AudioSessionInfo? session = AudioAppParameter.ResolveSessionOrReport(ctx, audio);
+        if (session == null) return;
 
-        float? current = audio.GetSessionVolume(null, appId);
-        if (current == null)
-        {
-            AudioAppParameter.ReportNoSession(ctx, appId);
-            return;
-        }
-
-        float step = Math.Abs(AudioAppParameter.ResolveInt(ctx, AudioAppParameter.DefaultStepPercent)) / 100f;
-        float next = Math.Clamp(current.Value - step, 0f, 1f);
-        audio.SetSessionVolume(null, appId, next);
-        AudioDeviceParameter.ShowOverlay(ctx, $"{appId} {AudioDeviceParameter.FormatVolume(next)}");
+        float step = AudioAppParameter.ResolveStepScalar(ctx);
+        float next = Math.Clamp(session.Volume - step, 0f, 1f);
+        audio.SetSessionVolume(null, session.AppId, next);
+        AudioDeviceParameter.ShowOverlay(ctx, $"{AudioAppParameter.NameOf(ctx, session, identity)} {AudioDeviceParameter.FormatVolume(next)}");
     });
 }
 
-internal sealed class AudioAppMuteToggleCommand(IAudioService audio) : IPluginCommand
+internal sealed class AudioAppMuteToggleCommand(IAudioService audio, AppIdentityCache identity) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -206,22 +224,15 @@ internal sealed class AudioAppMuteToggleCommand(IAudioService audio) : IPluginCo
 
     public Task Execute(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
-        string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
-        if (appId == null) return;
+        AudioSessionInfo? session = AudioAppParameter.ResolveSessionOrReport(ctx, audio);
+        if (session == null) return;
 
-        bool? muted = audio.GetSessionMute(null, appId);
-        if (muted == null)
-        {
-            AudioAppParameter.ReportNoSession(ctx, appId);
-            return;
-        }
-
-        audio.SetSessionMute(null, appId, !muted.Value);
-        AudioDeviceParameter.ShowOverlay(ctx, !muted.Value ? "🔇" : $"🔊 {appId}");
+        audio.SetSessionMute(null, session.AppId, !session.Muted);
+        AudioDeviceParameter.ShowOverlay(ctx, !session.Muted ? "🔇" : $"🔊 {AudioAppParameter.NameOf(ctx, session, identity)}");
     });
 }
 
-internal sealed class AudioAppMuteCommand(IAudioService audio) : IPluginCommand
+internal sealed class AudioAppMuteCommand(IAudioService audio, AppIdentityCache identity) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -240,10 +251,10 @@ internal sealed class AudioAppMuteCommand(IAudioService audio) : IPluginCommand
         ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
 
     public Task Execute(CommandContext ctx) =>
-        AudioAppParameter.SetMute(ctx, audio, Descriptor.CommandName, true);
+        AudioAppParameter.SetMute(ctx, audio, identity, Descriptor.CommandName, true);
 }
 
-internal sealed class AudioAppUnmuteCommand(IAudioService audio) : IPluginCommand
+internal sealed class AudioAppUnmuteCommand(IAudioService audio, AppIdentityCache identity) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -262,10 +273,10 @@ internal sealed class AudioAppUnmuteCommand(IAudioService audio) : IPluginComman
         ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
 
     public Task Execute(CommandContext ctx) =>
-        AudioAppParameter.SetMute(ctx, audio, Descriptor.CommandName, false);
+        AudioAppParameter.SetMute(ctx, audio, identity, Descriptor.CommandName, false);
 }
 
-internal sealed class AudioAppSetMuteCommand(IAudioService audio) : IPluginCommand
+internal sealed class AudioAppSetMuteCommand(IAudioService audio, AppIdentityCache identity) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -284,10 +295,10 @@ internal sealed class AudioAppSetMuteCommand(IAudioService audio) : IPluginComma
         ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
 
     public Task Execute(CommandContext ctx) =>
-        AudioAppParameter.SetMute(ctx, audio, Descriptor.CommandName, AudioDeviceParameter.ResolveMuted(ctx));
+        AudioAppParameter.SetMute(ctx, audio, identity, Descriptor.CommandName, AudioDeviceParameter.ResolveMuted(ctx));
 }
 
-internal sealed class AudioAppSetVolumeCommand(IAudioService audio) : IPluginCommand
+internal sealed class AudioAppSetVolumeCommand(IAudioService audio, AppIdentityCache identity) : IPluginCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -313,6 +324,8 @@ internal sealed class AudioAppSetVolumeCommand(IAudioService audio) : IPluginCom
         float target = Math.Clamp(
             AudioAppParameter.ResolveInt(ctx, AudioAppParameter.DefaultPercent), 0, 100) / 100f;
         audio.SetSessionVolume(null, appId, target);
-        AudioDeviceParameter.ShowOverlay(ctx, $"{appId} {AudioDeviceParameter.FormatVolume(target)}");
+        AudioSessionInfo? session = AudioAppParameter.FindSession(audio, appId);
+        string name = session == null ? appId : AudioAppParameter.NameOf(ctx, session, identity);
+        AudioDeviceParameter.ShowOverlay(ctx, $"{name} {AudioDeviceParameter.FormatVolume(target)}");
     });
 }
