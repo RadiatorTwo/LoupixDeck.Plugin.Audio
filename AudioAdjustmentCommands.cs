@@ -81,7 +81,7 @@ internal sealed class AudioVolumeCommand(IAudioService audio) : IAdjustmentComma
 /// counterpart of <see cref="AudioVolumeCommand"/> for the per-app dial, replacing
 /// <c>Audio.AppVolumeUp</c> / <c>Audio.AppVolumeDown</c> / <c>Audio.AppMuteToggle</c>.
 /// </summary>
-internal sealed class AudioAppVolumeCommand(IAudioService audio) : IAdjustmentCommand
+internal sealed class AudioAppVolumeCommand(IAudioService audio, AppIdentityCache identity) : IAdjustmentCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -105,7 +105,7 @@ internal sealed class AudioAppVolumeCommand(IAudioService audio) : IAdjustmentCo
         float step = AudioAppParameter.ResolveStepScalar(ctx);
         float next = Math.Clamp(session.Volume + (ticks * step), 0f, 1f);
         audio.SetSessionVolume(null, session.AppId, next);
-        AudioDeviceParameter.ShowOverlay(ctx, $"{session.AppId} {AudioDeviceParameter.FormatVolume(next)}");
+        AudioDeviceParameter.ShowOverlay(ctx, $"{AudioAppParameter.NameOf(ctx, session, identity)} {AudioDeviceParameter.FormatVolume(next)}");
     });
 
     public Task ApplyReset(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
@@ -114,7 +114,7 @@ internal sealed class AudioAppVolumeCommand(IAudioService audio) : IAdjustmentCo
         if (session == null) return;
 
         audio.SetSessionMute(null, session.AppId, !session.Muted);
-        AudioDeviceParameter.ShowOverlay(ctx, !session.Muted ? "🔇" : $"🔊 {session.AppId}");
+        AudioDeviceParameter.ShowOverlay(ctx, !session.Muted ? "🔇" : $"🔊 {AudioAppParameter.NameOf(ctx, session, identity)}");
     });
 
     /// <inheritdoc cref="AudioVolumeCommand.Execute"/>
