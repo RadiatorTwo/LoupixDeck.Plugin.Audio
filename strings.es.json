@@ -144,5 +144,12 @@
   "Master volume": "Volumen general",
   "Audio Volume Bars": "Barras de volumen de audio",
   "muted": "silenciado",
-  "System Sounds": "Sonidos del sistema"
+  "System Sounds": "Sonidos del sistema",
+
+  "Play test sound": "Reproducir sonido de prueba",
+  "Refresh devices": "Actualizar dispositivos",
+  "Open sound folder": "Abrir carpeta de sonidos",
+  "Playing a test sound on the default output": "Sonido de prueba en la salida predeterminada",
+  "Found {0} outputs and {1} inputs": "Se encontraron {0} salidas y {1} entradas",
+  "Sound folder opened": "Carpeta de sonidos abierta"
 }

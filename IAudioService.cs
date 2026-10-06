@@ -94,4 +94,11 @@ public interface IAudioService
     /// failed; the caller must treat that as non-fatal.
     /// </summary>
     bool SetDefaultEndpoint(string endpointId);
+
+    /// <summary>
+    /// Drops every cached device answer — endpoint lists, names, levels and session devices — so
+    /// the next query reads the system afresh. For when the user suspects the plugin has missed a
+    /// change; nothing in normal operation needs it.
+    /// </summary>
+    void RefreshDevices();
 }

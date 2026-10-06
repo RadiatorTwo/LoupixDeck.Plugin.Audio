@@ -24,6 +24,7 @@ internal sealed class UnsupportedAudioService : IAudioService
     public void SetSessionMute(string? endpointId, string appId, bool muted) { }
     public string? GetForegroundAppId() => null;
     public bool SetDefaultEndpoint(string endpointId) => false;
+    public void RefreshDevices() { }
 
     private sealed class NoopDisposable : IDisposable
     {

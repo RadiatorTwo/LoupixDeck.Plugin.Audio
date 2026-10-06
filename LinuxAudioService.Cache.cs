@@ -311,6 +311,11 @@ public sealed partial class LinuxAudioService : IDisposable
         cts?.Dispose();
     }
 
+    public void RefreshDevices()
+    {
+        lock (_cacheLock) ClearCaches();
+    }
+
     private void ClearCaches()
     {
         _levels.Clear();
