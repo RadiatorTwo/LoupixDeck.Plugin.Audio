@@ -38,7 +38,7 @@ internal sealed class AudioSetDefaultDeviceCommand(IAudioService audio) : IPlugi
             return Task.CompletedTask;
         }
 
-        AudioDeviceParameter.ShowOverlay(ctx, "Default");
+        AudioDeviceParameter.ShowOverlay(ctx, ctx.Host.Tr("Default"));
         return Task.CompletedTask;
     }
 }

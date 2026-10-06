@@ -136,5 +136,13 @@
   "App Unmute": "App Ton an",
   "Set App Mute": "App-Stummschaltung",
   "Set App Volume": "App-Lautstärke",
-  "Failed": "Fehlgeschlagen"
+  "Failed": "Fehlgeschlagen",
+
+  "Default": "Standard",
+  "No app in front": "Keine App im Vordergrund",
+  "Foreground App": "Vordergrund-App",
+  "Master volume": "Gesamtlautstärke",
+  "Audio Volume Bars": "Audio-Lautstärkebalken",
+  "muted": "stumm",
+  "System Sounds": "Systemsounds"
 }

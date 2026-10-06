@@ -22,7 +22,7 @@ public sealed partial class AudioPlugin
     public override IEnumerable<DialPresetDescriptor> GetDialPresets()
     {
         yield return DevicePreset(
-            "master-volume", "Master volume", VolumeGlyph, AudioDeviceParameter.DefaultDeviceId);
+            "master-volume", Tr("Master volume"), VolumeGlyph, AudioDeviceParameter.DefaultDeviceId);
 
         foreach (AudioEndpointInfo ep in Endpoints(AudioEndpointKind.Render))
             yield return DevicePreset($"output-{ep.Id}", Name(ep), VolumeGlyph, ep.Id);

@@ -176,7 +176,7 @@ internal sealed class AudioAppVolumeTileCommand(IAudioService audio, AppIdentity
             // An app that is not playing has no level; it is drawn greyed out at zero rather than left
             // showing the last level it had.
             AppIdentity app = identity.Resolve(session?.ExecutablePath);
-            string name = app.FriendlyName ?? session?.DisplayName ?? appId;
+            string name = session == null ? appId : AudioSessionNames.Display(session, app, ctx.Host);
             int percent = session == null ? 0 : AudioVolumeTile.Percent(session.Volume);
             bool muted = session?.Muted ?? true;
 
