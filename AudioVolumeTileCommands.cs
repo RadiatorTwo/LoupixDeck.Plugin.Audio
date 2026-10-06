@@ -126,7 +126,7 @@ internal sealed class AudioVolumeTileCommand(IAudioService audio, AudioAliasStor
 }
 
 /// <summary>
-/// One application's volume and mute state on a single touch key, with its icon on Windows. Pressing
+/// One application's volume and mute state on a single touch key, with its icon where one is found. Pressing
 /// it toggles the app's mute. The counterpart of <see cref="AudioVolumeTileCommand"/>, and what the
 /// menu offers as an app's "Mute Toggle" on a touch key; <c>Audio.AppMuteToggle</c> stays for buttons
 /// and dials, which cannot show a state, and for bindings saved before.
@@ -175,7 +175,7 @@ internal sealed class AudioAppVolumeTileCommand(IAudioService audio, AppIdentity
 
             // An app that is not playing has no level; it is drawn greyed out at zero rather than left
             // showing the last level it had.
-            AppIdentity app = identity.Resolve(session?.ExecutablePath);
+            AppIdentity app = identity.Resolve(session);
             string name = session == null ? appId : AudioSessionNames.Display(session, app, ctx.Host);
             int percent = session == null ? 0 : AudioVolumeTile.Percent(session.Volume);
             bool muted = session?.Muted ?? true;

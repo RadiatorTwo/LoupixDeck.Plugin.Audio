@@ -104,7 +104,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
             AudioSessionInfo captured = _sessions[page.First + index];
             bool selected = string.Equals(captured.AppId, _selectedAppId, StringComparison.Ordinal);
             int percent = (int)Math.Round(captured.Volume * 100f);
-            AppIdentity identity = _identity.Resolve(captured.ExecutablePath);
+            AppIdentity identity = _identity.Resolve(captured);
             string name = NameOf(captured, identity);
 
             MixerTileData data = new(name, percent, captured.Muted, selected, identity.Icon, identity.IconSize,
@@ -217,7 +217,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         FolderPage page = _pager.Layout(_sessions.Count);
         _painter.UpdateMarquee(
             _sessions.Skip(page.First).Take(page.Count)
-                .Select(session => (NameOf(session, _identity.Resolve(session.ExecutablePath)),
+                .Select(session => (NameOf(session, _identity.Resolve(session)),
                 string.Equals(session.AppId, _selectedAppId, StringComparison.Ordinal))),
             _style);
 
@@ -237,7 +237,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         foreach (AudioSessionInfo session in _sessions)
         {
             builder.Append(session.AppId).Append(':')
-                .Append(NameOf(session, _identity.Resolve(session.ExecutablePath))).Append(':')
+                .Append(NameOf(session, _identity.Resolve(session))).Append(':')
                 // The tile shows whole percent, so a smaller change is invisible.
                 .Append((int)Math.Round(session.Volume * 100f)).Append(':')
                 .Append(session.Muted ? '1' : '0').Append('|');

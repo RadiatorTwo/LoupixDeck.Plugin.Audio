@@ -27,13 +27,17 @@ public sealed partial class LinuxAudioService
                 byApp[input.AppId] = existing with
                 {
                     Volume = Math.Max(existing.Volume, input.Volume),
-                    Muted = existing.Muted && input.Muted
+                    Muted = existing.Muted && input.Muted,
+                    // Not every stream of an app names its icon; the first that does counts.
+                    IconName = existing.IconName ?? input.IconName,
+                    DesktopId = existing.DesktopId ?? input.DesktopId
                 };
             }
             else
             {
                 byApp[input.AppId] = new AudioSessionInfo(
-                    input.AppId, input.DisplayName, input.Volume, input.Muted);
+                    input.AppId, input.DisplayName, input.Volume, input.Muted,
+                    IconName: input.IconName, DesktopId: input.DesktopId);
             }
         }
 
@@ -94,7 +98,8 @@ public sealed partial class LinuxAudioService
 
     /// <summary>One parsed "pactl list sink-inputs" block.</summary>
     private readonly record struct SinkInput(
-        int Index, string AppId, string DisplayName, float Volume, bool Muted, int Pid);
+        int Index, string AppId, string DisplayName, float Volume, bool Muted, int Pid,
+        string? IconName = null, string? DesktopId = null);
 
     private static IReadOnlyList<SinkInput> ParseSinkInputs(string pactlList)
     {
@@ -128,17 +133,28 @@ public sealed partial class LinuxAudioService
             _ = int.TryParse(Regex.Match(block, @"application\.process\.id\s*=\s*""(\d+)""").Groups[1].Value,
                 NumberStyles.Integer, CultureInfo.InvariantCulture, out int pid);
 
+            // What the mixer shows the app with; see LinuxAppIdentityResolver.
+            string iconName = Property(block, "application.icon_name");
+            string desktopId = Property(block, "application.id");
+            if (desktopId.Length == 0) desktopId = Property(block, "pipewire.access.portal.app_id");
+
             result.Add(new SinkInput(
                 int.Parse(indexMatch.Groups[1].Value, CultureInfo.InvariantCulture),
                 appId,
                 string.IsNullOrEmpty(appName) ? appId : appName,
                 volume,
                 muted,
-                pid));
+                pid,
+                iconName.Length > 0 ? iconName : null,
+                desktopId.Length > 0 ? desktopId : null));
         }
 
         return result;
     }
+
+    /// <summary>The value of one <c>key = "value"</c> property line, or empty when the block has none.</summary>
+    private static string Property(string block, string key) =>
+        Regex.Match(block, Regex.Escape(key) + @"\s*=\s*""([^""]*)""").Groups[1].Value.Trim();
 
     /// <summary>
     /// The stable identity of a stream. The executable name comes first, so every binding made
