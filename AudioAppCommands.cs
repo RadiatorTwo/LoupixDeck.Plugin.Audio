@@ -69,6 +69,26 @@ internal static class AudioAppParameter
     }
 
     /// <summary>
+    /// The app's mixer entry: volume, mute and name from one walk over the sessions, where asking
+    /// for volume and mute separately walks them twice. Null when the app is not playing.
+    /// </summary>
+    public static AudioSessionInfo? FindSession(IAudioService audio, string appId) =>
+        audio.GetSessions(null).FirstOrDefault(s => string.Equals(s.AppId, appId, StringComparison.Ordinal));
+
+    /// <summary>
+    /// The bound app's session, reporting on the dial when there is no app or it is not playing.
+    /// </summary>
+    public static AudioSessionInfo? ResolveSessionOrReport(CommandContext ctx, IAudioService audio)
+    {
+        string? appId = ResolveAppIdOrReport(ctx, audio);
+        if (appId == null) return null;
+
+        AudioSessionInfo? session = FindSession(audio, appId);
+        if (session == null) ReportNoSession(ctx, appId);
+        return session;
+    }
+
+    /// <summary>
     /// Says that the app has no audio session to change, which is what a resolved app that is not
     /// playing anything looks like from here.
     /// </summary>
@@ -87,17 +107,11 @@ internal static class AudioAppParameter
     public static Task SetMute(CommandContext ctx, IAudioService audio, string commandName, bool muted) =>
         AudioDeviceParameter.Guard(ctx, commandName, () =>
         {
-            string? appId = ResolveAppIdOrReport(ctx, audio);
-            if (appId == null) return;
+            AudioSessionInfo? session = ResolveSessionOrReport(ctx, audio);
+            if (session == null) return;
 
-            if (audio.GetSessionMute(null, appId) == null)
-            {
-                ReportNoSession(ctx, appId);
-                return;
-            }
-
-            audio.SetSessionMute(null, appId, muted);
-            AudioDeviceParameter.ShowOverlay(ctx, muted ? "🔇" : $"🔊 {appId}");
+            audio.SetSessionMute(null, session.AppId, muted);
+            AudioDeviceParameter.ShowOverlay(ctx, muted ? "🔇" : $"🔊 {session.AppId}");
         });
 
     public static int ResolveInt(CommandContext ctx, int fallback)
@@ -132,20 +146,13 @@ internal sealed class AudioAppVolumeUpCommand(IAudioService audio) : IPluginComm
 
     public Task Execute(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
-        string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
-        if (appId == null) return;
-
-        float? current = audio.GetSessionVolume(null, appId);
-        if (current == null)
-        {
-            AudioAppParameter.ReportNoSession(ctx, appId);
-            return;
-        }
+        AudioSessionInfo? session = AudioAppParameter.ResolveSessionOrReport(ctx, audio);
+        if (session == null) return;
 
         float step = Math.Abs(AudioAppParameter.ResolveInt(ctx, AudioAppParameter.DefaultStepPercent)) / 100f;
-        float next = Math.Clamp(current.Value + step, 0f, 1f);
-        audio.SetSessionVolume(null, appId, next);
-        AudioDeviceParameter.ShowOverlay(ctx, $"{appId} {AudioDeviceParameter.FormatVolume(next)}");
+        float next = Math.Clamp(session.Volume + step, 0f, 1f);
+        audio.SetSessionVolume(null, session.AppId, next);
+        AudioDeviceParameter.ShowOverlay(ctx, $"{session.AppId} {AudioDeviceParameter.FormatVolume(next)}");
     });
 }
 
@@ -169,20 +176,13 @@ internal sealed class AudioAppVolumeDownCommand(IAudioService audio) : IPluginCo
 
     public Task Execute(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
-        string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
-        if (appId == null) return;
-
-        float? current = audio.GetSessionVolume(null, appId);
-        if (current == null)
-        {
-            AudioAppParameter.ReportNoSession(ctx, appId);
-            return;
-        }
+        AudioSessionInfo? session = AudioAppParameter.ResolveSessionOrReport(ctx, audio);
+        if (session == null) return;
 
         float step = Math.Abs(AudioAppParameter.ResolveInt(ctx, AudioAppParameter.DefaultStepPercent)) / 100f;
-        float next = Math.Clamp(current.Value - step, 0f, 1f);
-        audio.SetSessionVolume(null, appId, next);
-        AudioDeviceParameter.ShowOverlay(ctx, $"{appId} {AudioDeviceParameter.FormatVolume(next)}");
+        float next = Math.Clamp(session.Volume - step, 0f, 1f);
+        audio.SetSessionVolume(null, session.AppId, next);
+        AudioDeviceParameter.ShowOverlay(ctx, $"{session.AppId} {AudioDeviceParameter.FormatVolume(next)}");
     });
 }
 
@@ -206,18 +206,11 @@ internal sealed class AudioAppMuteToggleCommand(IAudioService audio) : IPluginCo
 
     public Task Execute(CommandContext ctx) => AudioDeviceParameter.Guard(ctx, Descriptor.CommandName, () =>
     {
-        string? appId = AudioAppParameter.ResolveAppIdOrReport(ctx, audio);
-        if (appId == null) return;
+        AudioSessionInfo? session = AudioAppParameter.ResolveSessionOrReport(ctx, audio);
+        if (session == null) return;
 
-        bool? muted = audio.GetSessionMute(null, appId);
-        if (muted == null)
-        {
-            AudioAppParameter.ReportNoSession(ctx, appId);
-            return;
-        }
-
-        audio.SetSessionMute(null, appId, !muted.Value);
-        AudioDeviceParameter.ShowOverlay(ctx, !muted.Value ? "🔇" : $"🔊 {appId}");
+        audio.SetSessionMute(null, session.AppId, !session.Muted);
+        AudioDeviceParameter.ShowOverlay(ctx, !session.Muted ? "🔇" : $"🔊 {session.AppId}");
     });
 }
 

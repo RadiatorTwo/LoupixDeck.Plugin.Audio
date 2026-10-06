@@ -156,10 +156,10 @@ internal sealed class AudioAppVolumeTileCommand(IAudioService audio, AppIdentity
         string? appId = AudioAppParameter.ResolveAppId(ctx, audio);
         if (appId == null) return;
 
-        bool? muted = audio.GetSessionMute(null, appId);
-        if (muted == null) return;
+        AudioSessionInfo? session = AudioAppParameter.FindSession(audio, appId);
+        if (session == null) return;
 
-        audio.SetSessionMute(null, appId, !muted.Value);
+        audio.SetSessionMute(null, appId, !session.Muted);
         ctx.Host.RequestButtonRefresh(Descriptor.CommandName);
     });
 
@@ -170,8 +170,7 @@ internal sealed class AudioAppVolumeTileCommand(IAudioService audio, AppIdentity
             string? appId = AudioAppParameter.ResolveAppId(ctx, audio);
             if (appId == null) return false;
 
-            AudioSessionInfo? session = audio.GetSessions(null)
-                .FirstOrDefault(s => string.Equals(s.AppId, appId, StringComparison.Ordinal));
+            AudioSessionInfo? session = AudioAppParameter.FindSession(audio, appId);
 
             // An app that is not playing has no level; it is drawn greyed out at zero rather than left
             // showing the last level it had.

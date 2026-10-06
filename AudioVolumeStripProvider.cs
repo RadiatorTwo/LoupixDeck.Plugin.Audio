@@ -256,10 +256,11 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
                 // The dial's own command owns the level when it is an adjustment command; a dial bound to the
                 // older AppVolumeUp/Down commands has none, so the session is asked instead.
                 AdjustmentValue? value = bar.PullValue?.Invoke();
+                AudioSessionInfo? session = AudioAppParameter.FindSession(_audio, appId);
                 level = value.HasValue
                     ? Math.Clamp((float)value.Value.Normalized, 0f, 1f)
-                    : _audio.GetSessionVolume(null, appId);
-                muted = level != null && (_audio.GetSessionMute(null, appId) ?? false);
+                    : session?.Volume;
+                muted = level != null && (session?.Muted ?? false);
             }
             catch
             {
