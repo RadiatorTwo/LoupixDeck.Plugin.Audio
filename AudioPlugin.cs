@@ -20,6 +20,7 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
     private IPluginSettings? _settings;
     private IPluginLogger? _logger;
     private IPluginHost? _host;
+    private IDisposable? _deviceChanges;
     private readonly AppIdentityCache _appIdentity = new();
 
     internal static readonly TimeSpan VolumeOverlayDuration = TimeSpan.FromMilliseconds(1500);
@@ -101,6 +102,36 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
 
         _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings, _aliasStore, host);
         _stripProviders = [_stripProvider];
+
+        _deviceChanges = _audio.SubscribeDeviceChanges(OnDeviceChanged);
+    }
+
+    /// <summary>Commands whose buttons or dials show something that depends on the default device.</summary>
+    private static readonly string[] DefaultDeviceCommands =
+        ["Audio.CurrentOutput", "Audio.CycleOutput", "Audio.Volume", "Audio.VolumeTile", "Audio.MuteToggle"];
+
+    /// <summary>
+    /// A device came or went, or the default moved. Drops what the commands remember about the
+    /// default and repaints everything that shows it, instead of leaving it to their next poll.
+    /// </summary>
+    private void OnDeviceChanged()
+    {
+        AudioDeviceParameter.InvalidateDefaultEndpoint();
+        AudioCurrentOutputCommand.InvalidateLabel();
+        RefreshDeviceButtons();
+    }
+
+    private void RefreshDeviceButtons()
+    {
+        if (_host == null) return;
+
+        foreach (string command in DefaultDeviceCommands)
+        {
+            try { _host.RequestButtonRefresh(command); }
+            catch (Exception ex) { _logger?.Warn($"Audio: could not refresh {command}: {ex.Message}"); }
+        }
+        // The strip bars follow the default device on render.
+        _stripProvider?.NotifyLayoutChanged();
     }
 
     public override void Shutdown()
@@ -108,6 +139,9 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
         // Sounds are fire-and-forget, so an unloaded plugin could otherwise leave
         // a WASAPI stream or a paplay process behind.
         _audio.StopAllPlayback();
+        // Before the backend goes away, so no change is delivered to a plugin that is shutting down.
+        _deviceChanges?.Dispose();
+        _deviceChanges = null;
         // The Windows backend holds a cached session device that COM only releases on demand;
         // the Linux backend runs a pactl event monitor process.
         if (_audio is IDisposable disposable) disposable.Dispose();

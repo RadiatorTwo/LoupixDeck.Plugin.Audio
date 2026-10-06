@@ -44,6 +44,7 @@ public sealed partial class LinuxAudioService : IDisposable
     private readonly Dictionary<AudioEndpointKind, Dictionary<int, string>> _namesByIndex = [];
     private CachedSinkInputs? _sinkInputs;
     private readonly List<Listener> _listeners = [];
+    private readonly DeviceChangeNotifier _deviceChanges = new();
 
     /// <summary>A device's level. <paramref name="PendingEchoes"/> counts writes of this service
     /// whose change event has not arrived yet; see <see cref="StoreLevel"/>.</summary>
@@ -238,6 +239,14 @@ public sealed partial class LinuxAudioService : IDisposable
         return listener;
     }
 
+    public IDisposable SubscribeDeviceChanges(Action onChange)
+    {
+        // The events come from the monitor, so a subscriber needs it running even before
+        // anything has read a volume.
+        EnsureMonitor();
+        return _deviceChanges.Subscribe(onChange);
+    }
+
     // --- the monitor ------------------------------------------------------
 
     /// <summary>Starts the shared <c>pactl subscribe</c> process unless it runs, or died too recently.</summary>
@@ -305,6 +314,10 @@ public sealed partial class LinuxAudioService : IDisposable
             ClearCaches();
         }
 
+        // Changes may have gone unreported while the monitor was dying; whoever shows a device
+        // re-reads it, which also starts the next monitor.
+        _deviceChanges.Raise();
+
         try { cts?.Cancel(); } catch { /* ignore */ }
         try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { /* ignore */ }
         process.Dispose();
@@ -346,6 +359,7 @@ public sealed partial class LinuxAudioService : IDisposable
                     _endpoints.Clear();
                     _generation++;
                 }
+                _deviceChanges.Raise();
                 return;
 
             case "sink":
@@ -370,11 +384,14 @@ public sealed partial class LinuxAudioService : IDisposable
                 _namesByIndex.Remove(kind);
                 _generation++;
             }
+            _deviceChanges.Raise();
             return;
         }
 
         // Looked up before a removal clears the map, so a removed device still has its name here.
         string? name = NameOfIndex(kind, index);
+
+        if (type == "remove") _deviceChanges.Raise();
 
         List<Listener> notify;
         CachedLevel? echo = null;

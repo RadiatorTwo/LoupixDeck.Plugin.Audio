@@ -23,6 +23,16 @@ public sealed partial class WindowsAudioService
     private MMDeviceEnumerator? _notificationEnumerator;
     private EndpointChangeClient? _notificationClient;
 
+    private readonly DeviceChangeNotifier _deviceChanges = new();
+
+    public IDisposable SubscribeDeviceChanges(Action onChange)
+    {
+        // Registered here as well as on the first volume read: a button that shows only the
+        // current output reads no volume, and would otherwise never hear of a change.
+        lock (_volumeLock) EnsureNotificationClient();
+        return _deviceChanges.Subscribe(onChange);
+    }
+
     /// <summary>
     /// Runs <paramref name="action"/> against the cached endpoint volume of <paramref name="endpointId"/>.
     /// A failing call drops the cached device and is tried once more on a fresh one, so an endpoint that
@@ -103,10 +113,24 @@ public sealed partial class WindowsAudioService
         _notificationClient = client;
     }
 
-    /// <summary>Called from the notification thread: forgets the device, nothing more.</summary>
+    /// <summary>
+    /// Called from the notification thread when an endpoint was removed or changed state: forgets
+    /// its device and the endpoint list, and tells the subscribers. No COM call here — see
+    /// <see cref="DeviceChangeNotifier"/>.
+    /// </summary>
     private void OnEndpointChanged(string endpointId)
     {
         lock (_volumeLock) ReleaseVolumeDevice(endpointId);
+        OnEndpointListChanged();
+    }
+
+    /// <summary>Called from the notification thread when the set of endpoints changed.</summary>
+    private void OnEndpointListChanged()
+    {
+        // Expires the endpoint list the mixer walks, so a new device's sessions show up at once
+        // instead of after EndpointListLifetime.
+        Interlocked.Exchange(ref _renderEndpointsStamp, 0);
+        _deviceChanges.Raise();
     }
 
     /// <summary>Releases the cached endpoint volumes and the notification registration.</summary>
@@ -143,15 +167,21 @@ public sealed partial class WindowsAudioService
     }
 
     /// <summary>
-    /// Forwards removal and state changes of an endpoint. Windows raises these on its own thread and
-    /// expects the callback to return quickly, so it only drops a cache entry.
+    /// Forwards endpoint and default-device changes. Windows raises these on its own thread and
+    /// expects the callback to return quickly, so it only drops cache entries and marks a change.
     /// </summary>
     private sealed class EndpointChangeClient(WindowsAudioService owner) : IMMNotificationClient
     {
         public void OnDeviceStateChanged(string deviceId, DeviceState newState) => owner.OnEndpointChanged(deviceId);
-        public void OnDeviceAdded(string pwstrDeviceId) { }
+        public void OnDeviceAdded(string pwstrDeviceId) => owner.OnEndpointListChanged();
         public void OnDeviceRemoved(string deviceId) => owner.OnEndpointChanged(deviceId);
-        public void OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId) { }
+
+        // Raised once per role. The plugin reads the multimedia default, so the other two are noise.
+        public void OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId)
+        {
+            if (role == Role.Multimedia) owner._deviceChanges.Raise();
+        }
+
         public void OnPropertyValueChanged(string pwstrDeviceId, PropertyKey key) { }
     }
 }

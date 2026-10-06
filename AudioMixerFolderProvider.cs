@@ -8,7 +8,8 @@ namespace LoupixDeck.Plugin.Audio;
 /// Per-application mixer. One tile per application currently playing audio, showing its
 /// level; tapping a tile selects it, the first rotary then adjusts the selected app and
 /// its press toggles mute. Refreshes on a timer because neither WASAPI sessions nor pactl
-/// give a usable per-session change notification across both platforms.
+/// give a usable per-session change notification across both platforms; a device change
+/// (see <see cref="IAudioService.SubscribeDeviceChanges"/>) reloads at once on top of that.
 /// Each tile is a picture drawn by <see cref="MixerTileRenderer"/> (icon, level, name); the look
 /// is chosen by the command's layout and font parameters.
 /// </summary>
@@ -30,6 +31,7 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
     private string? _selectedAppId;
     private string? _rendered;
     private Timer? _refresh;
+    private IDisposable? _deviceChanges;
 
     // The timer, the rotary handlers and the host's BuildEntries all touch the fields above from
     // different threads. _reloading keeps a slow tick (a pactl call can take a while) from
@@ -69,10 +71,14 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         Reload(announce: false);
         // The timer only lives while the folder is open, so a closed mixer costs nothing.
         _refresh = new Timer(_ => OnTimer(), null, RefreshInterval, RefreshInterval);
+        // A device that comes or goes takes its applications with it.
+        _deviceChanges = _audio.SubscribeDeviceChanges(OnTimer);
     }
 
     public override void OnExit()
     {
+        _deviceChanges?.Dispose();
+        _deviceChanges = null;
         _refresh?.Dispose();
         _refresh = null;
         _painter.Stop();

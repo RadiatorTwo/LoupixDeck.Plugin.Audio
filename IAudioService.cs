@@ -44,6 +44,14 @@ public interface IAudioService
     IDisposable SubscribeVolumeChanges(string endpointId, Action<float, bool> onChange);
 
     /// <summary>
+    /// Subscribes to changes of the device set: a device added, removed, enabled or disabled, or a
+    /// new default output or input. <paramref name="onChange"/> runs on a worker thread, once per
+    /// burst of changes, and says only that something changed — re-read what you show. Dispose the
+    /// returned token to unsubscribe.
+    /// </summary>
+    IDisposable SubscribeDeviceChanges(Action onChange);
+
+    /// <summary>
     /// Starts playing a file on the given render endpoint, or on the system default when
     /// <paramref name="endpointId"/> is null. Returns immediately; every call starts its own
     /// playback, so repeated presses overlap. Throws when the playback cannot be started.

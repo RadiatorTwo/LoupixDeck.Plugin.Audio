@@ -45,8 +45,7 @@ public sealed partial class AudioPlugin
     private Task<string> RefreshDevices() => Task.Run(() =>
     {
         _audio.RefreshDevices();
-        AudioDeviceParameter.InvalidateDefaultEndpoint();
-        AudioCurrentOutputCommand.InvalidateLabel();
+        OnDeviceChanged();
 
         int outputs = Endpoints(AudioEndpointKind.Render).Count;
         int inputs = Endpoints(AudioEndpointKind.Capture).Count;

@@ -8,12 +8,15 @@ namespace LoupixDeck.Plugin.Audio;
 /// Top-level folder for the Windows-Audio command. Lists each active endpoint of
 /// the chosen kind and lets the user open a sub-folder to control volume/mute.
 /// Each endpoint is a tile drawn like a mixer tile (icon, level, name) in the look the command's
-/// parameters choose; the default endpoint carries the selection frame. The levels follow the
-/// devices, so the folder refreshes on a timer while it is open.
+/// parameters choose; the default endpoint carries the selection frame. While the folder is open it
+/// follows the devices by notification: a level change updates its tile, a device change
+/// (<see cref="IAudioService.SubscribeDeviceChanges"/>) re-reads the list. A slow timer catches
+/// whatever a notification missed.
 /// </summary>
 public sealed class AudioDevicesFolderProvider : FolderProviderBase
 {
-    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(750);
+    /// <summary>Fallback poll; the notifications carry the folder in normal operation.</summary>
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(5);
 
     private readonly IAudioService _audio;
     private readonly AudioEndpointKind _kind;
@@ -28,12 +31,21 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
     private IReadOnlyList<DeviceRow>? _rows;
     private string? _rendered;
     private Timer? _refresh;
+    private IDisposable? _deviceChanges;
 
-    // The timer, alias changes and the host's BuildEntries all touch the fields above from
-    // different threads. _reloading keeps a slow tick (a pactl call can take a while) from
-    // overlapping the next one, which System.Threading.Timer would otherwise start regardless.
+    // The timer, the notifications, alias changes and the host's BuildEntries all touch the fields
+    // above from different threads. _reloading keeps a slow read (a pactl call can take a while)
+    // from overlapping the next one; a request that arrives meanwhile sets _reloadRequested, and
+    // the running read goes round once more instead of dropping it.
     private readonly Lock _gate = new();
     private int _reloading;
+    private int _reloadRequested;
+
+    // One volume subscription per listed endpoint, kept in step with the list. _closed stops a
+    // read that finishes after OnExit from subscribing again.
+    private readonly Lock _subscriptionGate = new();
+    private readonly Dictionary<string, IDisposable> _volumeSubscriptions = new(StringComparer.Ordinal);
+    private bool _closed;
 
     /// <summary>An endpoint as the tile shows it, read once per refresh.</summary>
     private sealed record DeviceRow(AudioEndpointInfo Endpoint, string Name, int Percent, bool Muted);
@@ -58,21 +70,34 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
 
     public override void OnEnter()
     {
+        lock (_subscriptionGate) _closed = false;
         _aliasStore.Changed += OnAliasChanged;
 
         // The host builds the entries right after this returns, so nothing is announced here: an announcement
         // during OnEnter makes it redraw the page or parent folder first and race that with the new folder.
         Reload(announce: false);
         // The timer only lives while the folder is open, so a closed folder costs nothing.
-        _refresh = new Timer(_ => OnTimer(), null, RefreshInterval, RefreshInterval);
+        _refresh = new Timer(_ => RequestReload(), null, RefreshInterval, RefreshInterval);
+        _deviceChanges = _audio.SubscribeDeviceChanges(RequestReload);
     }
 
     public override void OnExit()
     {
         _aliasStore.Changed -= OnAliasChanged;
+        _deviceChanges?.Dispose();
+        _deviceChanges = null;
         _refresh?.Dispose();
         _refresh = null;
         _painter.Stop();
+
+        List<IDisposable> subscriptions;
+        lock (_subscriptionGate)
+        {
+            _closed = true;
+            subscriptions = [.. _volumeSubscriptions.Values];
+            _volumeSubscriptions.Clear();
+        }
+        foreach (IDisposable subscription in subscriptions) subscription.Dispose();
     }
 
     public override IReadOnlyList<FolderEntry> BuildEntries()
@@ -170,15 +195,78 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
     {
         // A renamed device has to show its new name even though nothing else changed.
         lock (_gate) _rendered = null;
-        Reload();
+        RequestReload();
     }
 
-    /// <summary>A timer tick, skipped while the previous one is still reading.</summary>
-    private void OnTimer()
+    /// <summary>
+    /// Re-reads the devices on a worker thread that is already running — the timer's, or the one a
+    /// notification arrives on. One read at a time; a request during a read is served right after it.
+    /// </summary>
+    private void RequestReload()
     {
-        if (Interlocked.CompareExchange(ref _reloading, 1, 0) != 0) return;
-        try { Reload(); }
-        finally { Volatile.Write(ref _reloading, 0); }
+        Volatile.Write(ref _reloadRequested, 1);
+        while (Interlocked.CompareExchange(ref _reloading, 1, 0) == 0)
+        {
+            try
+            {
+                while (Interlocked.Exchange(ref _reloadRequested, 0) == 1) Reload();
+            }
+            finally
+            {
+                Volatile.Write(ref _reloading, 0);
+            }
+
+            // A request that came in between the last check and the release would be lost otherwise.
+            if (Volatile.Read(ref _reloadRequested) == 0) return;
+        }
+    }
+
+    /// <summary>A level change of one listed endpoint: updates its tile without re-reading the list.</summary>
+    private void OnVolumeChanged(string endpointId, float volume, bool muted)
+    {
+        int percent = (int)Math.Round(volume * 100f);
+        bool changed;
+        lock (_gate)
+        {
+            if (_rows == null) return;
+            _rows = [.. _rows.Select(row => row.Endpoint.Id == endpointId ? row with { Percent = percent, Muted = muted } : row)];
+            changed = UpdateSnapshot();
+        }
+
+        if (changed) RaiseEntriesChanged();
+    }
+
+    /// <summary>Subscribes to the level of every listed endpoint and drops the ones no longer listed.</summary>
+    private void SyncVolumeSubscriptions(IReadOnlyList<DeviceRow> rows)
+    {
+        HashSet<string> listed = new(rows.Select(row => row.Endpoint.Id), StringComparer.Ordinal);
+        List<IDisposable> dropped = [];
+        lock (_subscriptionGate)
+        {
+            if (_closed) return;
+
+            foreach (string id in _volumeSubscriptions.Keys.Where(id => !listed.Contains(id)).ToList())
+            {
+                dropped.Add(_volumeSubscriptions[id]);
+                _volumeSubscriptions.Remove(id);
+            }
+
+            foreach (string id in listed.Where(id => !_volumeSubscriptions.ContainsKey(id)))
+            {
+                try
+                {
+                    _volumeSubscriptions[id] = _audio.SubscribeVolumeChanges(id,
+                        (volume, muted) => OnVolumeChanged(id, volume, muted));
+                }
+                catch (Exception ex)
+                {
+                    // The fallback timer still reads this device's level.
+                    _host.Logger?.Warn($"Audio devices: could not follow the level of '{id}': {ex.Message}");
+                }
+            }
+        }
+
+        foreach (IDisposable subscription in dropped) subscription.Dispose();
     }
 
     /// <summary>
@@ -193,6 +281,7 @@ public sealed class AudioDevicesFolderProvider : FolderProviderBase
             // The backend is read outside the lock, so a slow read never blocks the host's
             // BuildEntries; only the swap and the comparison are serialised.
             IReadOnlyList<DeviceRow> rows = ReadRows();
+            SyncVolumeSubscriptions(rows);
 
             bool changed;
             lock (_gate)

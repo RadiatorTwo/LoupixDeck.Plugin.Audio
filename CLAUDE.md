@@ -175,3 +175,17 @@ public CommandDescriptor Descriptor { get; } = new()
   `IsSystemSoundsSession` erkannt und heißt `system` / "System Sounds". Anzeigenamen, die mit
   `@` beginnen, sind nicht aufgelöste Ressourcen-Verweise wie
   `@%SystemRoot%\System32\AudioSrv.Dll,-202` und werden durch die `AppId` ersetzt.
+
+## Geräteänderungen: Ereignis statt Polling
+
+`IAudioService.SubscribeDeviceChanges` meldet, dass sich die Geräte geändert haben (Gerät dazu/weg,
+aktiviert/deaktiviert, neues Standardgerät). Windows bekommt das über den `IMMNotificationClient`
+in `WindowsAudioService.EndpointCache.cs`, Linux über `server`-, `sink`- und `source`-Ereignisse des
+`pactl subscribe`-Monitors. `DeviceChangeNotifier` holt die Meldung vom Backend-Thread (der
+WASAPI-Callback darf nicht zurück in COM) und fasst einen Schwall in ~100 ms zu einem Aufruf
+zusammen — Windows meldet einen Standardwechsel je Rolle, ein Headset löst mehrere Ereignisse aus.
+
+Das Plugin verwirft dann den gemerkten Standard und ruft `RequestButtonRefresh` für die Befehle, die
+ihn anzeigen. Das Polling bleibt nur als Rückfall: 30 s für die "Current Output"-Beschriftung,
+5 s für den Geräteordner, der Pegel per `SubscribeVolumeChanges` verfolgt. Der Mixer bleibt bei
+750 ms, weil App-Sessions auf keiner Plattform ein brauchbares Ereignis haben.

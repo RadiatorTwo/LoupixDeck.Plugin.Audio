@@ -5,8 +5,9 @@ namespace LoupixDeck.Plugin.Audio;
 
 /// <summary>
 /// Opens the output-device picker and labels itself with the device currently in use, so the
-/// button doubles as a read-out. Polled rather than event-driven because the default endpoint
-/// can change from outside the app and no cross-platform notification exists for it.
+/// button doubles as a read-out. The plugin refreshes it when the audio backend reports a device
+/// change (see <see cref="IAudioService.SubscribeDeviceChanges"/>); the slow poll only catches an
+/// event that never arrived.
 /// </summary>
 internal sealed class AudioCurrentOutputCommand(
     IAudioService audio, AudioAliasStore aliasStore, AudioVisibilityStore visibility) : IDisplayCommand
@@ -18,7 +19,7 @@ internal sealed class AudioCurrentOutputCommand(
     /// Enumerating endpoints does real COM/pactl work per call (see
     /// <see cref="IAudioService.GetEndpoints"/>), and several buttons could carry this command
     /// at once, so the resolved label is cached for one poll interval rather than re-enumerated
-    /// on every <see cref="GetText"/> call.
+    /// on every <see cref="GetText"/> call. A device change clears it through <see cref="InvalidateLabel"/>.
     /// </summary>
     private static readonly Lock CacheLock = new();
     private static string? _cachedLabel;
@@ -44,8 +45,9 @@ internal sealed class AudioCurrentOutputCommand(
 
     public string GetText(CommandContext ctx) => Label(ctx, audio, aliasStore);
 
-    /// <summary>How long a resolved label is reused.</summary>
-    private static readonly TimeSpan LabelLifetime = TimeSpan.FromSeconds(2);
+    /// <summary>How long a resolved label is reused, and how often the host polls it. A fallback
+    /// only: a default change refreshes the button at once.</summary>
+    internal static readonly TimeSpan LabelLifetime = TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// The name of the current default output, as every button that shows it reads it. Shared with
