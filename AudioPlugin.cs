@@ -29,7 +29,7 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
     {
         Id = "audio",
         Name = "Audio",
-        Version = new Version(1, 15, 0),
+        Version = new Version(1, 16, 0),
         SdkVersion = SdkInfo.Version,
         Author = "RadiatorTwo",
         Description = "Pick the active audio output/input device and adjust volume and mute from the device.",
