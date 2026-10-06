@@ -7,8 +7,6 @@ public sealed partial class AudioPlugin
 {
     public IReadOnlyList<PluginSettingDescriptor> SettingsSchema => BuildSchema();
 
-    public IReadOnlyList<PluginSettingAction> SettingsActions { get; } = [];
-
     public void OnSettingsSaved()
     {
         _aliasStore?.CleanupEmpty();

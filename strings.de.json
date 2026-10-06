@@ -144,5 +144,12 @@
   "Master volume": "Gesamtlautstärke",
   "Audio Volume Bars": "Audio-Lautstärkebalken",
   "muted": "stumm",
-  "System Sounds": "Systemsounds"
+  "System Sounds": "Systemsounds",
+
+  "Play test sound": "Testton abspielen",
+  "Refresh devices": "Geräte neu laden",
+  "Open sound folder": "Sound-Ordner öffnen",
+  "Playing a test sound on the default output": "Testton läuft auf der Standardausgabe",
+  "Found {0} outputs and {1} inputs": "{0} Ausgabe- und {1} Eingabegeräte gefunden",
+  "Sound folder opened": "Sound-Ordner geöffnet"
 }

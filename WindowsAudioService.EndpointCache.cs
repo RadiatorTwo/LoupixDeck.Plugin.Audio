@@ -130,6 +130,12 @@ public sealed partial class WindowsAudioService
         }
         enumerator?.Dispose();
 
+        ReleaseVolumeDevices();
+    }
+
+    /// <summary>Releases every cached endpoint volume; the notification registration stays.</summary>
+    private void ReleaseVolumeDevices()
+    {
         lock (_volumeLock)
         {
             foreach (string id in _volumeDevices.Keys.ToList()) ReleaseVolumeDevice(id);

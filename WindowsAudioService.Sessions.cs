@@ -291,7 +291,19 @@ public sealed partial class WindowsAudioService
     public void Dispose()
     {
         DisposeEndpointCache();
+        ReleaseSessionCache();
+    }
 
+    public void RefreshDevices()
+    {
+        ReleaseSessionCache();
+        ReleaseVolumeDevices();
+        lock (_friendlyNameLock) _friendlyNames.Clear();
+        lock (_lastEndpointsLock) _lastEndpoints.Clear();
+    }
+
+    private void ReleaseSessionCache()
+    {
         lock (_sessionLock)
         {
             foreach (string id in _sessionCache.Keys.ToList()) ReleaseEndpoint(id);
