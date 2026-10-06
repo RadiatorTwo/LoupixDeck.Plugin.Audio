@@ -136,7 +136,7 @@ internal sealed class AudioAppVolumeTileCommand(IAudioService audio, AppIdentity
     public CommandDescriptor Descriptor { get; } = new()
     {
         CommandName = "Audio.AppVolumeTile",
-        DisplayName = "Audio: App Mute Toggle",
+        DisplayName = "Audio: App Volume Tile",
         Group = "Audio",
         Icon = AudioButtonLayouts.VolumeSet,
         ButtonLayout = AudioVolumeTile.Layout,
