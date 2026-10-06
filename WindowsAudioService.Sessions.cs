@@ -8,7 +8,7 @@ namespace LoupixDeck.Plugin.Audio;
 public sealed partial class WindowsAudioService
 {
     /// <summary>AppId of the Windows system-sounds session, which has no process of its own.</summary>
-    private const string SystemSoundsAppId = "system";
+    private const string SystemSoundsAppId = AudioSessionNames.SystemSoundsAppId;
 
     /// <summary>
     /// The Windows audio engine. It owns render sessions on every endpoint a virtual audio
@@ -353,7 +353,7 @@ public sealed partial class WindowsAudioService
 
     private static string ResolveDisplayName(AudioSessionControl session, string appId)
     {
-        if (appId == SystemSoundsAppId) return "System Sounds";
+        if (appId == SystemSoundsAppId) return AudioSessionNames.SystemSounds;
 
         try
         {

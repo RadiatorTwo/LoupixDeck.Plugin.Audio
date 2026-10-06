@@ -21,7 +21,7 @@ Diese Ordner liegen lokal und enthalten alles, was zum Verständnis und zur Entw
 - **Namespace:** `LoupixDeck.Plugin.Audio`
 - **Plugin-Klasse:** `AudioPlugin` erbt von `LoupixPlugin`
 - **Manifest:** `plugin.json` (id = `audio`, sdkVersion = `1.28`, entryAssembly = `LoupixDeck.Plugin.Audio.dll`)
-- **Übersetzungen:** `strings.de.json` neben `plugin.json`, per csproj ins Output kopiert (siehe unten).
+- **Übersetzungen:** `strings.de.json` und `strings.es.json` neben `plugin.json`, per csproj ins Output kopiert (siehe unten).
 - **Target Framework:** `net9.0`
 - **SDK-Paket:** `LoupixDeck.PluginSdk` 1.28.0 von nuget.org, mit `<ExcludeAssets>runtime</ExcludeAssets>` — der Host stellt die SDK-DLL bereit, nie mit ausliefern.
 - **NAudio:** das Meta-Paket `NAudio` bleibt, weil `AudioFileReader` in `NAudio.dll` steckt und
@@ -86,9 +86,9 @@ Für dynamisch beschriftete Buttons zusätzlich `IDisplayCommand` implementieren
 
 ## Übersetzungen
 
-Sichtbare Texte sind auf Englisch verfasst; `strings.de.json` neben `plugin.json` liefert die
-deutsche Fassung, mit dem englischen Text als Schlüssel. Zwei Wege, je nachdem woher der Text
-kommt:
+Sichtbare Texte sind auf Englisch verfasst; `strings.de.json` und `strings.es.json` neben
+`plugin.json` liefern die deutsche und spanische Fassung, mit dem englischen Text als Schlüssel.
+Zwei Wege, je nachdem woher der Text kommt:
 
 - **Deklarativ** — alles in den Descriptors (Befehlsnamen, Gruppen, Beschreibungen, Settings-Labels,
   Menüknoten) übersetzt der Host beim Anzeigen. Dafür ist kein Code nötig, und ein Sprachwechsel
@@ -105,7 +105,8 @@ string.Format(_host.Tr("Hide {0}"), name)
 ```
 
 Nicht übersetzt werden Gerätenamen und App-Namen vom Betriebssystem, Prozentanzeigen und Logtexte.
-Neue sichtbare Strings gehören beim Anlegen in `strings.de.json`.
+Neue sichtbare Strings gehören beim Anlegen in `strings.de.json` und `strings.es.json` — beide
+Dateien haben dieselben Schlüssel in derselben Reihenfolge.
 
 ## Parametrisierte Commands (IMenuContributor)
 

@@ -1,3 +1,5 @@
+using LoupixDeck.PluginSdk;
+
 namespace LoupixDeck.Plugin.Audio;
 
 /// <summary>
@@ -14,3 +16,21 @@ public sealed record AudioSessionInfo(
     float Volume,
     bool Muted,
     string? ExecutablePath = null);
+
+/// <summary>The name a session is shown under, wherever the plugin draws one.</summary>
+internal static class AudioSessionNames
+{
+    /// <summary>AppId of the Windows system-sounds session, which has no process of its own.</summary>
+    public const string SystemSoundsAppId = "system";
+
+    /// <summary>English name of the system-sounds session; translated where it is drawn, since the
+    /// audio service that names it has no host.</summary>
+    public const string SystemSounds = "System Sounds";
+
+    /// <summary>The executable's file description ("Google Chrome") when it has one, otherwise what
+    /// the session calls itself; the system-sounds session in the user's language.</summary>
+    public static string Display(AudioSessionInfo session, AppIdentity identity, IPluginHost host) =>
+        session.AppId == SystemSoundsAppId
+            ? host.Tr(SystemSounds)
+            : identity.FriendlyName ?? session.DisplayName;
+}

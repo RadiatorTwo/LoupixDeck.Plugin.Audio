@@ -18,7 +18,7 @@ internal sealed class AudioVolumeStripProvider(IAudioService audio, IPluginSetti
     internal const string HorizontalLayoutKey = "strip.horizontalLayout";
 
     public string Id => "audio.volume-bars";
-    public string Title => "Audio Volume Bars";
+    public string Title => host.Tr("Audio Volume Bars");
 
     // Live sessions, so a settings change can repaint the affected strips immediately.
     private readonly List<AudioVolumeStripSession> _sessions = [];
@@ -230,7 +230,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
             return false;
 
         var horizontal = _settings.Get(AudioVolumeStripProvider.HorizontalLayoutKey, false);
-        AudioStripRenderer.Render(_bars.Select(View).ToList(), canvas, horizontal);
+        AudioStripRenderer.Render(_bars.Select(View).ToList(), canvas, horizontal, _host.Tr("muted"));
         return true;
     }
 
@@ -553,13 +553,15 @@ internal static class AudioStripRenderer
     // content clear of every edge by this inset.
     private const int Edge = 4;
 
-    public static void Render(IReadOnlyList<BarView> bars, IRenderCanvas canvas, bool horizontal)
+    /// <param name="mutedLabel">The translated "muted" caption the vertical layout writes under a
+    /// muted bar; the horizontal layout draws a symbol instead.</param>
+    public static void Render(IReadOnlyList<BarView> bars, IRenderCanvas canvas, bool horizontal, string mutedLabel)
     {
         if (horizontal) RenderHorizontal(bars, canvas);
-        else RenderVertical(bars, canvas);
+        else RenderVertical(bars, canvas, mutedLabel);
     }
 
-    private static void RenderVertical(IReadOnlyList<BarView> bars, IRenderCanvas canvas)
+    private static void RenderVertical(IReadOnlyList<BarView> bars, IRenderCanvas canvas, string mutedLabel)
     {
         var width = canvas.Width;
         var height = canvas.Height;
@@ -601,7 +603,7 @@ internal static class AudioStripRenderer
                     bar.Muted ? FillMuted : FillActive);
 
             // Label below the track (mute marker takes precedence).
-            var label = bar.Muted ? "muted" : Fit(bar.Name, canvas, labelSize, colW);
+            var label = bar.Muted ? mutedLabel : Fit(bar.Name, canvas, labelSize, colW);
             if (label.Length > 0)
                 canvas.DrawText(label, left, trackBottom + 2, colW, height - trackBottom - 2,
                     TextColor, labelSize, centered: true);

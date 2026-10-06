@@ -148,9 +148,8 @@ public sealed class AudioMixerFolderProvider : FolderProviderBase
         if (changed) RaiseEntriesChanged();
     }
 
-    /// <summary>The executable's file description ("Google Chrome") when it has one, otherwise what the session calls itself.</summary>
-    private static string NameOf(AudioSessionInfo session, AppIdentity identity) =>
-        identity.FriendlyName ?? session.DisplayName;
+    private string NameOf(AudioSessionInfo session, AppIdentity identity) =>
+        AudioSessionNames.Display(session, identity, _host);
 
     /// <summary>A timer tick, skipped while the previous one is still reading.</summary>
     private void OnTimer()

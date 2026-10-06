@@ -63,7 +63,7 @@ internal static class AudioAppParameter
     {
         string? appId = ResolveAppId(ctx, audio);
         if (appId == null)
-            AudioDeviceParameter.ShowOverlay(ctx, "No app in front");
+            AudioDeviceParameter.ShowOverlay(ctx, ctx.Host.Tr("No app in front"));
 
         return appId;
     }
