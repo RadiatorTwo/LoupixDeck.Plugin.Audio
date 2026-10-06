@@ -114,6 +114,17 @@ internal static class AudioAppParameter
             AudioDeviceParameter.ShowOverlay(ctx, muted ? "🔇" : $"🔊 {session.AppId}");
         });
 
+    /// <summary>
+    /// The step (parameter index 1, percent) as a 0..1 scalar. A missing, unreadable or zero step
+    /// falls back to <see cref="DefaultStepPercent"/>, as the device commands do: a step of 0 would
+    /// make the command do nothing, which is never what the binding meant.
+    /// </summary>
+    public static float ResolveStepScalar(CommandContext ctx)
+    {
+        int percent = Math.Abs(ResolveInt(ctx, DefaultStepPercent));
+        return (percent == 0 ? DefaultStepPercent : percent) / 100f;
+    }
+
     public static int ResolveInt(CommandContext ctx, int fallback)
     {
         string[]? p = ctx.Parameters;
@@ -149,7 +160,7 @@ internal sealed class AudioAppVolumeUpCommand(IAudioService audio) : IPluginComm
         AudioSessionInfo? session = AudioAppParameter.ResolveSessionOrReport(ctx, audio);
         if (session == null) return;
 
-        float step = Math.Abs(AudioAppParameter.ResolveInt(ctx, AudioAppParameter.DefaultStepPercent)) / 100f;
+        float step = AudioAppParameter.ResolveStepScalar(ctx);
         float next = Math.Clamp(session.Volume + step, 0f, 1f);
         audio.SetSessionVolume(null, session.AppId, next);
         AudioDeviceParameter.ShowOverlay(ctx, $"{session.AppId} {AudioDeviceParameter.FormatVolume(next)}");
@@ -179,7 +190,7 @@ internal sealed class AudioAppVolumeDownCommand(IAudioService audio) : IPluginCo
         AudioSessionInfo? session = AudioAppParameter.ResolveSessionOrReport(ctx, audio);
         if (session == null) return;
 
-        float step = Math.Abs(AudioAppParameter.ResolveInt(ctx, AudioAppParameter.DefaultStepPercent)) / 100f;
+        float step = AudioAppParameter.ResolveStepScalar(ctx);
         float next = Math.Clamp(session.Volume - step, 0f, 1f);
         audio.SetSessionVolume(null, session.AppId, next);
         AudioDeviceParameter.ShowOverlay(ctx, $"{session.AppId} {AudioDeviceParameter.FormatVolume(next)}");

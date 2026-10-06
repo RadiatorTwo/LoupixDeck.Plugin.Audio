@@ -102,7 +102,7 @@ internal sealed class AudioAppVolumeCommand(IAudioService audio) : IAdjustmentCo
         AudioSessionInfo? session = AudioAppParameter.ResolveSessionOrReport(ctx, audio);
         if (session == null) return;
 
-        float step = Math.Abs(AudioAppParameter.ResolveInt(ctx, AudioAppParameter.DefaultStepPercent)) / 100f;
+        float step = AudioAppParameter.ResolveStepScalar(ctx);
         float next = Math.Clamp(session.Volume + (ticks * step), 0f, 1f);
         audio.SetSessionVolume(null, session.AppId, next);
         AudioDeviceParameter.ShowOverlay(ctx, $"{session.AppId} {AudioDeviceParameter.FormatVolume(next)}");
