@@ -14,6 +14,7 @@ internal sealed class UnsupportedAudioService : IAudioService
     public void SetMute(string endpointId, bool muted) { }
     public IDisposable SubscribeVolumeChanges(string endpointId, Action<float, bool> onChange)
         => NoopDisposable.Instance;
+    public IDisposable SubscribeDeviceChanges(Action onChange) => NoopDisposable.Instance;
     public void PlayFile(string filePath, string? endpointId, float volume) { }
     public void StopAllPlayback() { }
     public bool StopFile(string filePath) => false;

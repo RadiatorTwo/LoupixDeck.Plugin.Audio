@@ -39,7 +39,7 @@ internal sealed class AudioCycleOutputCommand(
     public ButtonTargets SupportedTargets =>
         ButtonTargets.RotaryEncoder | ButtonTargets.SimpleButton | ButtonTargets.TouchButton;
 
-    public TimeSpan UpdateInterval => TimeSpan.FromSeconds(2);
+    public TimeSpan UpdateInterval => AudioCurrentOutputCommand.LabelLifetime;
 
     public string GetText(CommandContext ctx) => AudioCurrentOutputCommand.Label(ctx, audio, aliasStore);
 

@@ -14,8 +14,10 @@ public sealed partial class AudioPlugin
         // Collapse the per-device playback toggles back into a single selection.
         if (_audio.IsSupported)
             _playbackDevices?.Normalize(Endpoints(AudioEndpointKind.Render));
-        // The layout toggle may have flipped — repaint any live volume strips.
-        _stripProvider?.NotifyLayoutChanged();
+        // An alias may have changed, which the current-output label caches for its poll interval.
+        AudioCurrentOutputCommand.InvalidateLabel();
+        // Also repaints the live volume strips, in case the layout toggle flipped.
+        RefreshDeviceButtons();
     }
 
     private IReadOnlyList<PluginSettingDescriptor> BuildSchema()
