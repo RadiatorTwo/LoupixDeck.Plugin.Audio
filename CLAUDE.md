@@ -51,6 +51,12 @@ auf älteren Hosts als 90x90-PNG (`PngEncoder`), das der Host skaliert. `FolderE
 nur in einer `NoInlining`-Methode angefasst, damit der JIT das Member auf einem alten Host nie
 auflösen muss. Der Painter treibt außerdem das Lauftext-Scrollen überlanger Namen.
 
+App-Icon und -Name liefert `AppIdentityCache`, einmal pro App gecacht. Windows liest beides aus der
+EXE (`WindowsIconExtractor`, Dateibeschreibung). Linux hat keinen Pfad: `LinuxAppIdentityResolver`
+sucht über `application.id`/Portal-App-ID, AppId und `application.icon_name` die `.desktop`-Datei
+(Name, lokalisiert nach `LANG`) und ein PNG im hicolor-Theme oder in `pixmaps`. `PngDecoder` macht
+daraus Pixel ohne Bildbibliothek; SVG-Icons werden übersprungen, die Kachel zeigt dann den Lautsprecher.
+
 ## Build & Deploy
 
 ```bash

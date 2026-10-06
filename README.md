@@ -69,8 +69,11 @@ sounds session is listed as "System Sounds".
 
 Each tile shows the application's icon, its level and its name. On Windows the
 icon and the name (the executable's file description, for example "Google
-Chrome") come from the executable; on Linux, and for applications without an
-icon, a speaker is shown. The command has two parameters, so every assignment
+Chrome") come from the executable. On Linux the name comes from the
+application's `.desktop` file and the icon from the hicolor icon theme or
+`/usr/share/pixmaps`, Flatpak exports included; only PNG icons are read, so an
+application that ships only an SVG icon shows a speaker, as does one without
+an icon. The command has two parameters, so every assignment
 can look different (five parameters):
 
 - `layout` — `Top` (icon above level and name, the default), `Left` (icon on the
