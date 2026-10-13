@@ -67,7 +67,7 @@ public sealed partial class AudioPlugin
         ProcessStartInfo psi = OperatingSystem.IsWindows()
             // Shell execution of a folder opens it in Explorer.
             ? new ProcessStartInfo(folder) { UseShellExecute = true }
-            : new ProcessStartInfo("xdg-open") { ArgumentList = { folder }, UseShellExecute = false };
+            : new ProcessStartInfo(OperatingSystem.IsMacOS() ? "open" : "xdg-open") { ArgumentList = { folder }, UseShellExecute = false };
 
         try
         {

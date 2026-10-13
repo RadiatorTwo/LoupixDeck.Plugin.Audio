@@ -23,7 +23,13 @@ public sealed partial class AudioPlugin
             new MenuNode { Name = "Current Output Device", CommandName = "Audio.CurrentOutput" },
             new MenuNode { Name = "Cycle Output Device", CommandName = "Audio.CycleOutput" },
             new MenuNode { Name = "Select Input Device", CommandName = "Audio.InputDevices" },
-            new MenuNode { Name = "Mixer", CommandName = "Audio.Mixer" },
+        ];
+
+        if (HasAppAudio)
+            rootChildren.Add(new MenuNode { Name = "Mixer", CommandName = "Audio.Mixer" });
+
+        rootChildren.AddRange(
+        [
             // Bound to the default input rather than a fixed microphone, so the button keeps working
             // when the microphone changes.
             new MenuNode
@@ -35,7 +41,7 @@ public sealed partial class AudioPlugin
                     [AudioDeviceParameter.DeviceIdName] = AudioDeviceParameter.DefaultInputDeviceId,
                 },
             },
-        ];
+        ]);
 
         if (outputs.Count > 0)
             rootChildren.Add(DevicesCategory("Output Devices", "Default Output", AudioDeviceParameter.DefaultDeviceId,
@@ -44,7 +50,8 @@ public sealed partial class AudioPlugin
             rootChildren.Add(DevicesCategory("Input Devices", "Default Input", AudioDeviceParameter.DefaultInputDeviceId,
                 inputs, includeGroup));
 
-        rootChildren.Add(ApplicationsCategory(includeGroup, target.HasFlag(ButtonTargets.TouchButton)));
+        if (HasAppAudio)
+            rootChildren.Add(ApplicationsCategory(includeGroup, target.HasFlag(ButtonTargets.TouchButton)));
         rootChildren.Add(SoundsCategory());
         // A sibling of the sound tree rather than a child of it: stopping must stay
         // reachable even when no sound folder is configured.

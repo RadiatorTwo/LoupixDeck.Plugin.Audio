@@ -5,7 +5,7 @@ namespace LoupixDeck.Plugin.Audio;
 /// <summary>
 /// Entry point of the Audio plugin. Contributes commands that open a folder
 /// for picking an output/input device and adjusting its volume and mute state.
-/// Backed by WASAPI on Windows and pactl (PulseAudio / pipewire-pulse) on Linux.
+/// Backed by WASAPI on Windows, pactl (PulseAudio / pipewire-pulse) on Linux and CoreAudio on macOS.
 /// </summary>
 public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMenuContributor, IPluginRequirements
 {
@@ -22,6 +22,13 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
     private IPluginHost? _host;
     private IDisposable? _deviceChanges;
     private readonly AppIdentityCache _appIdentity = new();
+
+    /// <summary>
+    /// Whether the backend can reach the audio of single applications. macOS has no API for another
+    /// application's volume, so there the mixer, the per-app commands and their menu entries are left
+    /// out rather than offered and doing nothing.
+    /// </summary>
+    private bool HasAppAudio => _audio is not MacAudioService;
 
     internal static readonly TimeSpan VolumeOverlayDuration = TimeSpan.FromMilliseconds(1500);
 
@@ -59,8 +66,9 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
             return;
         }
 
-        // The Windows backend logs its own COM failures, so it needs the host logger.
+        // The Windows and macOS backends log their own failures, so they need the host logger.
         if (_audio is WindowsAudioService windows) windows.Logger = host.Logger;
+        if (_audio is MacAudioService mac) mac.Logger = host.Logger;
 
         _host = host;
         AudioButtonLayouts.Translate = host.Tr;
@@ -77,7 +85,6 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
             new AudioCycleOutputCommand(_audio, _aliasStore, _visibility),
             new AudioInputFolderCommand(_audio, _aliasStore, _visibility),
             new AudioVolumeCommand(_audio),
-            new AudioAppVolumeCommand(_audio, _appIdentity),
             new AudioVolumeUpCommand(_audio),
             new AudioVolumeDownCommand(_audio),
             new AudioMuteToggleCommand(_audio),
@@ -88,17 +95,25 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
             new AudioStopSoundCommand(_audio, host),
             new AudioSetVolumeCommand(_audio),
             new AudioSetDefaultDeviceCommand(_audio),
-            new AudioAppVolumeUpCommand(_audio, _appIdentity),
-            new AudioAppVolumeDownCommand(_audio, _appIdentity),
-            new AudioAppMuteToggleCommand(_audio, _appIdentity),
-            new AudioAppMuteCommand(_audio, _appIdentity),
-            new AudioAppUnmuteCommand(_audio, _appIdentity),
-            new AudioAppSetMuteCommand(_audio, _appIdentity),
-            new AudioAppSetVolumeCommand(_audio, _appIdentity),
-            new AudioMixerFolderCommand(_audio, _appIdentity),
             new AudioVolumeTileCommand(_audio, _aliasStore),
-            new AudioAppVolumeTileCommand(_audio, _appIdentity),
         ];
+
+        if (HasAppAudio)
+        {
+            _commands.AddRange(
+            [
+                new AudioAppVolumeCommand(_audio, _appIdentity),
+                new AudioAppVolumeUpCommand(_audio, _appIdentity),
+                new AudioAppVolumeDownCommand(_audio, _appIdentity),
+                new AudioAppMuteToggleCommand(_audio, _appIdentity),
+                new AudioAppMuteCommand(_audio, _appIdentity),
+                new AudioAppUnmuteCommand(_audio, _appIdentity),
+                new AudioAppSetMuteCommand(_audio, _appIdentity),
+                new AudioAppSetVolumeCommand(_audio, _appIdentity),
+                new AudioMixerFolderCommand(_audio, _appIdentity),
+                new AudioAppVolumeTileCommand(_audio, _appIdentity),
+            ]);
+        }
 
         _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings, _aliasStore, host);
         _stripProviders = [_stripProvider];
@@ -223,6 +238,7 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
     {
         if (OperatingSystem.IsWindows()) return new WindowsAudioService();
         if (OperatingSystem.IsLinux()) return new LinuxAudioService();
+        if (OperatingSystem.IsMacOS()) return new MacAudioService();
         return new UnsupportedAudioService();
     }
 }
