@@ -72,6 +72,14 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
         public string? DefaultSentinel;
 
         public bool FollowsDefault => DefaultSentinel != null;
+
+        /// <summary>
+        /// Whether <see cref="DeviceId"/> was among the active endpoints at the last device change.
+        /// An unplugged or disabled endpoint keeps its binding but draws as a dial without a value,
+        /// instead of the last level it reported.
+        /// </summary>
+        public bool Connected = true;
+
         public float Volume;
         public bool Muted;
         public IDisposable? Subscription;
@@ -114,6 +122,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
     private readonly int _width;
     private readonly int _height;
     private readonly List<Bar> _bars = [];
+    private readonly IDisposable? _deviceChanges;
 
     // Guards each bar's DeviceId/Subscription pair, which a rebind swaps from a notification
     // thread or the render path while another thread may be disposing the session.
@@ -146,11 +155,13 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
         // it controls instead of a blank bar. The OS name is only the alias fallback —
         // the displayed name (alias-or-friendly) is resolved at render time.
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        bool enumerated = false;
         try
         {
             foreach (var ep in _audio.GetEndpoints(AudioEndpointKind.Render)
                          .Concat(_audio.GetEndpoints(AudioEndpointKind.Capture)))
                 names[ep.Id] = ep.FriendlyName;
+            enumerated = true;
         }
         catch { /* enumeration is best-effort; fall back to dial labels */ }
 
@@ -170,7 +181,12 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
                 AppId = boundId == null ? AudioStripCommandParser.ExtractAppId(rotary) : null
             };
 
-            if (bar.DeviceId != null)
+            // Without an enumeration nothing is known about the endpoint, so the bar is drawn as before.
+            if (enumerated && bar.DeviceId != null) bar.Connected = names.ContainsKey(bar.DeviceId);
+
+            // A missing endpoint has no level to read and no notifications to subscribe to; both
+            // are set up when it comes back.
+            if (bar.DeviceId != null && bar.Connected)
             {
                 Seed(bar, bar.DeviceId);
                 bar.Subscription = Subscribe(bar, bar.DeviceId);
@@ -178,6 +194,68 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
 
             _bars.Add(bar);
         }
+
+        if (_bars.Any(b => b.DeviceId != null))
+        {
+            try { _deviceChanges = _audio.SubscribeDeviceChanges(RefreshConnections); }
+            catch { /* no device events: bars keep the state they started with */ }
+        }
+    }
+
+    /// <summary>
+    /// Runs on a worker thread after the device set changed: marks each device bar connected or not,
+    /// and rebinds a bar whose endpoint came back, because the volume subscription made before the
+    /// endpoint went away never fires again.
+    /// </summary>
+    private void RefreshConnections()
+    {
+        HashSet<string> active;
+        try
+        {
+            active = _audio.GetEndpoints(AudioEndpointKind.Render)
+                .Concat(_audio.GetEndpoints(AudioEndpointKind.Capture))
+                .Select(ep => ep.Id)
+                .ToHashSet(StringComparer.Ordinal);
+        }
+        catch
+        {
+            return;
+        }
+
+        bool changed = false;
+        List<(Bar Bar, string DeviceId, IDisposable? Old)> rebinds = [];
+        List<IDisposable> dropped = [];
+        lock (_barLock)
+        {
+            if (_disposed) return;
+
+            foreach (Bar bar in _bars)
+            {
+                if (bar.DeviceId == null) continue;
+
+                bool connected = active.Contains(bar.DeviceId);
+                if (connected == bar.Connected) continue;
+
+                bar.Connected = connected;
+                changed = true;
+                IDisposable? old = bar.Subscription;
+                bar.Subscription = null;
+
+                if (connected) rebinds.Add((bar, bar.DeviceId, old));
+                else if (old != null) dropped.Add(old);
+            }
+        }
+
+        foreach (IDisposable subscription in dropped)
+        {
+            try { subscription.Dispose(); }
+            catch { /* best effort */ }
+        }
+
+        foreach ((Bar bar, string deviceId, IDisposable? old) in rebinds)
+            Rebind(bar, deviceId, old);
+
+        if (changed) StripChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Reads the current level of an endpoint into the bar.</summary>
@@ -241,7 +319,11 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
     private AudioStripRenderer.BarView View(Bar bar)
     {
         if (bar.DeviceId != null)
-            return new AudioStripRenderer.BarView(DisplayName(bar), true, bar.Level, bar.Muted);
+        {
+            return bar.Connected
+                ? new AudioStripRenderer.BarView(DisplayName(bar), true, bar.Level, bar.Muted)
+                : new AudioStripRenderer.BarView(DisplayName(bar), false, 0f, false);
+        }
 
         if (bar.AppId == null)
             return new AudioStripRenderer.BarView(DisplayName(bar), false, 0f, false);
@@ -339,51 +421,59 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
             if (_disposed || string.Equals(current, bar.DeviceId, StringComparison.Ordinal)) return false;
 
             bar.DeviceId = current;
+            bar.Connected = true; // the system only names an active endpoint as default
             old = bar.Subscription;
             bar.Subscription = null;
         }
 
         // Off the calling thread: this may run inside the old subscription's own callback, which
         // must not dispose itself, or on the render path, which must not wait for the backend.
-        _ = Task.Run(() =>
-        {
-            try { old?.Dispose(); }
-            catch { /* best effort */ }
-
-            // Read into locals: a later rebind may already own the bar, and its values must not be
-            // overwritten with this endpoint's.
-            float volume = 0f;
-            bool muted = false;
-            try { volume = _audio.GetVolume(current); muted = _audio.GetMute(current); }
-            catch { /* endpoint may have vanished */ }
-
-            IDisposable? subscription = Subscribe(bar, current);
-
-            bool keep;
-            lock (_barLock)
-            {
-                keep = !_disposed && bar.Subscription == null
-                       && string.Equals(bar.DeviceId, current, StringComparison.Ordinal);
-                if (keep)
-                {
-                    bar.Subscription = subscription;
-                    bar.Volume = volume;
-                    bar.Muted = muted;
-                }
-            }
-
-            if (!keep)
-            {
-                // The session closed, or the default moved again while this one was being made.
-                try { subscription?.Dispose(); }
-                catch { /* best effort */ }
-                return;
-            }
-
-            StripChanged?.Invoke(this, EventArgs.Empty);
-        });
+        _ = Task.Run(() => Rebind(bar, current, old));
 
         return true;
+    }
+
+    /// <summary>
+    /// Drops <paramref name="old"/>, reads the level of <paramref name="deviceId"/> and subscribes the
+    /// bar to it. Blocks on the backend, so callers run it off the render path. The result is kept
+    /// only while the bar still points at <paramref name="deviceId"/> and no other rebind got there first.
+    /// </summary>
+    private void Rebind(Bar bar, string deviceId, IDisposable? old)
+    {
+        try { old?.Dispose(); }
+        catch { /* best effort */ }
+
+        // Read into locals: a later rebind may already own the bar, and its values must not be
+        // overwritten with this endpoint's.
+        float volume = 0f;
+        bool muted = false;
+        try { volume = _audio.GetVolume(deviceId); muted = _audio.GetMute(deviceId); }
+        catch { /* endpoint may have vanished */ }
+
+        IDisposable? subscription = Subscribe(bar, deviceId);
+
+        bool keep;
+        lock (_barLock)
+        {
+            keep = !_disposed && bar.Subscription == null
+                   && string.Equals(bar.DeviceId, deviceId, StringComparison.Ordinal);
+            if (keep)
+            {
+                bar.Subscription = subscription;
+                bar.Volume = volume;
+                bar.Muted = muted;
+            }
+        }
+
+        if (!keep)
+        {
+            // The session closed, or the default moved again while this one was being made.
+            try { subscription?.Dispose(); }
+            catch { /* best effort */ }
+            return;
+        }
+
+        StripChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Picks the best display name for a dial, resolved at render time so an alias
@@ -465,6 +555,9 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
 
     public void Dispose()
     {
+        try { _deviceChanges?.Dispose(); }
+        catch { /* best effort */ }
+
         List<IDisposable> subscriptions = [];
         lock (_barLock)
         {
