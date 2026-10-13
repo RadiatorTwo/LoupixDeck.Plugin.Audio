@@ -3,13 +3,24 @@
 Audio integration plugin for [LoupixDeck](https://github.com/RadiatorTwo/LoupixDeck),
 built against [LoupixDeck.PluginSdk](https://github.com/RadiatorTwo/LoupixDeck.PluginSdk).
 
-Windows via WASAPI (NAudio), Linux via `pactl` (PulseAudio / pipewire-pulse).
+Windows via WASAPI (NAudio), Linux via `pactl` (PulseAudio / pipewire-pulse),
+macOS via CoreAudio.
 Sound playback on Linux uses `paplay`. Formats libsndfile cannot decode (mp3,
 m4a) are decoded by `ffmpeg` and piped into `paplay`, or played by `mpv`; plain
 `ffplay` is used only when no specific playback device is selected, because it
 offers no way to target one. Selecting a device therefore needs `ffmpeg` plus
 `paplay`, or `mpv` — with none of them present the sound is skipped rather than
 played on the wrong device.
+
+macOS via CoreAudio: device selection, volume and mute of outputs and inputs,
+the default output and input, and sound playback through `afplay`. macOS has no
+API for the volume of another application's audio, so the mixer, the
+per-application commands and the foreground-app preset are not offered there.
+`afplay` always plays on the default output, so the **Playback device** setting
+has no effect on macOS. AirPlay receivers appear only while macOS is connected
+to one; connecting to a receiver is not possible from the plugin. A device
+without a volume control of its own (S/PDIF, HDMI) reads as 100 % and ignores
+volume changes, as in the macOS Sound menu.
 
 ## Commands
 
@@ -155,7 +166,7 @@ plugin's own playback, not the audio of other applications.
 ## Settings
 
 - **Sound folder** — folder scanned for `.wav`, `.mp3`, `.flac`, `.m4a` and
-  `.aiff` files (`.ogg` on Linux only — Windows has no Vorbis decoder).
+  `.aiff` files (`.ogg` on Linux only — Windows and macOS have no Vorbis decoder).
 - **Stop on second press** — off by default. When on, pressing a sound button
   again stops that sound rather than layering a second playback on top. A sound
   that already ended on its own simply starts again. Buttons sharing the same

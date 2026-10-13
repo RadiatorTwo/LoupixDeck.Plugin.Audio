@@ -30,6 +30,8 @@ public sealed partial class AudioPlugin
         foreach (AudioEndpointInfo ep in Endpoints(AudioEndpointKind.Capture))
             yield return DevicePreset($"input-{ep.Id}", Name(ep), MicrophoneGlyph, ep.Id);
 
+        if (!HasAppAudio) yield break;
+
         // Whatever is playing in front, rather than a fixed application: the one preset that is
         // worth having without knowing which app the user will be in.
         Dictionary<string, string> foreground = new(StringComparer.Ordinal)

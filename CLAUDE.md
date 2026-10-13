@@ -2,7 +2,7 @@
 
 Audio-Plugin für LoupixDeck: Auswahl des aktiven Ausgabe-/Eingabegeräts, Lautstärke und
 Stummschaltung, ein Mixer je Anwendung, Sound-Wiedergabe und Lautstärkebalken auf der
-Seitenleiste. Windows über WASAPI, Linux über `pactl`.
+Seitenleiste. Windows über WASAPI, Linux über `pactl`, macOS über CoreAudio.
 
 ## Referenz-Verzeichnisse
 
@@ -37,6 +37,11 @@ Die drei großen Klassen sind `partial` und nach Thema auf Dateien verteilt:
 - `WindowsAudioService.cs` (Endpoints, Lautstärke, Default-Gerät) plus `.Sessions` (Mixer,
   Vordergrund-App), `.Playback`, `.Notifications` (`VolumeSubscription`, `NotificationPump`),
   `.NativeMethods`.
+- `MacAudioService.cs` (Endpoints, Lautstärke, Default-Gerät) plus `.Native` (CoreAudio-/
+  CoreFoundation-P/Invoke, Property-Selektoren), `.Notifications` (Property-Listener für Pegel
+  und Geräteänderungen) und `.Playback` (`afplay`). IDs sind `output:<UID>` / `input:<UID>`, weil
+  ein Headset ein Gerät mit beiden Richtungen ist. macOS hat keine API für die Lautstärke fremder
+  Anwendungen; `AudioPlugin.HasAppAudio` blendet Mixer, App-Befehle und App-Preset dort aus.
 - `LinuxAudioService.cs` (Requirements, Endpoints, Lautstärke, Default-Gerät) plus `.Cache`
   (geteilter `pactl subscribe`-Monitor und die Caches dahinter), `.Sessions`, `.Playback`,
   `.Foreground` (xprop), `.Processes` (pactl-/Tool-Aufrufe mit Timeout).

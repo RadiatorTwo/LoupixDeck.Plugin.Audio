@@ -33,6 +33,9 @@ public sealed partial class AudioPlugin
             },
         };
 
+        // Its target is not registered where the app commands are left out (macOS).
+        if (!HasAppAudio) yield break;
+
         yield return new CommandMigration
         {
             Id = "app-volume-dial",

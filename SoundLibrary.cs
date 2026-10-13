@@ -30,11 +30,11 @@ public sealed class SoundLibrary(IPluginSettings settings)
 
     /// <summary>
     /// Extensions offered in the menu. Platform-dependent on purpose: Windows decodes via
-    /// Media Foundation, which has no Vorbis support, so <c>.ogg</c> would only fail at
-    /// press time. Linux plays it natively through paplay.
+    /// Media Foundation and macOS through afplay, neither of which has Vorbis support, so
+    /// <c>.ogg</c> would only fail at press time. Linux plays it natively through paplay.
     /// </summary>
     private static readonly HashSet<string> SupportedExtensions =
-        OperatingSystem.IsWindows()
+        !OperatingSystem.IsLinux()
             ? new(StringComparer.OrdinalIgnoreCase) { ".wav", ".mp3", ".flac", ".m4a", ".aiff", ".aif" }
             : new(StringComparer.OrdinalIgnoreCase) { ".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aiff", ".aif" };
 
