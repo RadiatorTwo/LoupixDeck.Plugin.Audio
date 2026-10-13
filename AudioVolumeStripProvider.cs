@@ -345,45 +345,52 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
 
         // Off the calling thread: this may run inside the old subscription's own callback, which
         // must not dispose itself, or on the render path, which must not wait for the backend.
-        _ = Task.Run(() =>
-        {
-            try { old?.Dispose(); }
-            catch { /* best effort */ }
-
-            // Read into locals: a later rebind may already own the bar, and its values must not be
-            // overwritten with this endpoint's.
-            float volume = 0f;
-            bool muted = false;
-            try { volume = _audio.GetVolume(current); muted = _audio.GetMute(current); }
-            catch { /* endpoint may have vanished */ }
-
-            IDisposable? subscription = Subscribe(bar, current);
-
-            bool keep;
-            lock (_barLock)
-            {
-                keep = !_disposed && bar.Subscription == null
-                       && string.Equals(bar.DeviceId, current, StringComparison.Ordinal);
-                if (keep)
-                {
-                    bar.Subscription = subscription;
-                    bar.Volume = volume;
-                    bar.Muted = muted;
-                }
-            }
-
-            if (!keep)
-            {
-                // The session closed, or the default moved again while this one was being made.
-                try { subscription?.Dispose(); }
-                catch { /* best effort */ }
-                return;
-            }
-
-            StripChanged?.Invoke(this, EventArgs.Empty);
-        });
+        _ = Task.Run(() => Rebind(bar, current, old));
 
         return true;
+    }
+
+    /// <summary>
+    /// Drops <paramref name="old"/>, reads the level of <paramref name="deviceId"/> and subscribes the
+    /// bar to it. Blocks on the backend, so callers run it off the render path. The result is kept
+    /// only while the bar still points at <paramref name="deviceId"/> and no other rebind got there first.
+    /// </summary>
+    private void Rebind(Bar bar, string deviceId, IDisposable? old)
+    {
+        try { old?.Dispose(); }
+        catch { /* best effort */ }
+
+        // Read into locals: a later rebind may already own the bar, and its values must not be
+        // overwritten with this endpoint's.
+        float volume = 0f;
+        bool muted = false;
+        try { volume = _audio.GetVolume(deviceId); muted = _audio.GetMute(deviceId); }
+        catch { /* endpoint may have vanished */ }
+
+        IDisposable? subscription = Subscribe(bar, deviceId);
+
+        bool keep;
+        lock (_barLock)
+        {
+            keep = !_disposed && bar.Subscription == null
+                   && string.Equals(bar.DeviceId, deviceId, StringComparison.Ordinal);
+            if (keep)
+            {
+                bar.Subscription = subscription;
+                bar.Volume = volume;
+                bar.Muted = muted;
+            }
+        }
+
+        if (!keep)
+        {
+            // The session closed, or the default moved again while this one was being made.
+            try { subscription?.Dispose(); }
+            catch { /* best effort */ }
+            return;
+        }
+
+        StripChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Picks the best display name for a dial, resolved at render time so an alias
