@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using NAudio.CoreAudioApi;
 using NAudio.CoreAudioApi.Interfaces;
@@ -18,6 +19,9 @@ public sealed partial class WindowsAudioService
 {
     private readonly Lock _volumeLock = new();
     private readonly Dictionary<string, MMDevice> _volumeDevices = new(StringComparer.Ordinal);
+    // Endpoints the notification thread reported as removed or changed. Their cached devices are
+    // released by the next caller that takes _volumeLock, never on the notification thread.
+    private readonly ConcurrentQueue<string> _staleVolumeDevices = new();
 
     // Kept alive while registered: Windows calls the client back through this enumerator.
     private MMDeviceEnumerator? _notificationEnumerator;
@@ -44,6 +48,7 @@ public sealed partial class WindowsAudioService
         lock (_volumeLock)
         {
             EnsureNotificationClient();
+            ReleaseStaleVolumeDevices();
 
             for (int attempt = 0; ; attempt++)
             {
@@ -83,6 +88,13 @@ public sealed partial class WindowsAudioService
         }
     }
 
+    /// <summary>Releases the devices the notification thread marked stale. Caller holds <see cref="_volumeLock"/>.</summary>
+    private void ReleaseStaleVolumeDevices()
+    {
+        while (_staleVolumeDevices.TryDequeue(out string? endpointId))
+            ReleaseVolumeDevice(endpointId);
+    }
+
     private void ReleaseVolumeDevice(string endpointId)
     {
         if (_volumeDevices.Remove(endpointId, out MMDevice? device))
@@ -114,13 +126,18 @@ public sealed partial class WindowsAudioService
     }
 
     /// <summary>
-    /// Called from the notification thread when an endpoint was removed or changed state: forgets
-    /// its device and the endpoint list, and tells the subscribers. No COM call here — see
-    /// <see cref="DeviceChangeNotifier"/>.
+    /// Called from the notification thread when an endpoint was removed or changed state: marks
+    /// its device stale, forgets the endpoint list, and tells the subscribers.
+    /// <para>
+    /// No COM call and no <see cref="_volumeLock"/> here. Disposing the cached device releases its
+    /// endpoint volume, and doing that inside the callback deadlocks against the audio service
+    /// (issue #54): the callback never returned, kept the lock, and every volume command after it
+    /// blocked until the thread pool ran dry. See also <see cref="DeviceChangeNotifier"/>.
+    /// </para>
     /// </summary>
     private void OnEndpointChanged(string endpointId)
     {
-        lock (_volumeLock) ReleaseVolumeDevice(endpointId);
+        _staleVolumeDevices.Enqueue(endpointId);
         OnEndpointListChanged();
     }
 
@@ -162,13 +179,14 @@ public sealed partial class WindowsAudioService
     {
         lock (_volumeLock)
         {
+            _staleVolumeDevices.Clear();
             foreach (string id in _volumeDevices.Keys.ToList()) ReleaseVolumeDevice(id);
         }
     }
 
     /// <summary>
     /// Forwards endpoint and default-device changes. Windows raises these on its own thread and
-    /// expects the callback to return quickly, so it only drops cache entries and marks a change.
+    /// expects the callback to return quickly, so it only marks cache entries stale and raises a change.
     /// </summary>
     private sealed class EndpointChangeClient(WindowsAudioService owner) : IMMNotificationClient
     {
