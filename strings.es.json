@@ -70,6 +70,8 @@
   "Saved aliases (not connected)": "Alias guardados (no conectados)",
   "Side-Strip Volume Bars": "Barras de volumen en la franja lateral",
   "Horizontal segments": "Segmentos horizontales",
+  "Bar color": "Color de las barras",
+  "Device Bar Colors": "Colores de barra por dispositivo",
 
   "Set a short alias to replace the OS device name.": "Define un alias corto que sustituya el nombre del dispositivo del sistema.",
   "Clear the field to forget the alias.": "Vacía el campo para olvidar el alias.",
@@ -77,6 +79,8 @@
   "Switch off to fall back to the system default device.": "Desactívalo para volver al dispositivo predeterminado del sistema.",
   "How the volume bars are arranged on the side strip.": "Cómo se disponen las barras de volumen en la franja lateral.",
   "Off: side-by-side vertical bars. On: 3 stacked horizontal segments.": "Desactivado: barras verticales una junto a otra. Activado: 3 segmentos horizontales apilados.",
+  "Hex color such as #4CAF50. Used by every bar without a color of its own, app dials included. Empty: green.": "Color hexadecimal como #4CAF50. Se usa en todas las barras sin color propio, también en los diales de aplicaciones. Vacío: verde.",
+  "Give a device's volume bar its own color, as a hex value such as #2196F3. Empty: the bar color above.": "Da a la barra de volumen de un dispositivo su propio color, como valor hexadecimal tal como #2196F3. Vacío: el color de las barras de arriba.",
   "Folder holding the audio files. After saving they show up in the command menu under Audio → Play Sound.": "Carpeta con los archivos de audio. Tras guardar aparecen en el menú de comandos en Audio → Reproducir sonido.",
   "Full path to a folder with .wav, .mp3, .flac, .m4a or .aiff files (.ogg on Linux only). Sub-folders become sub-menus.": "Ruta completa a una carpeta con archivos .wav, .mp3, .flac, .m4a o .aiff (.ogg solo en Linux). Las subcarpetas se convierten en submenús.",
   "Pressing the button again stops that sound instead of starting it a second time. Off: presses overlap.": "Al pulsar el botón de nuevo, el sonido se detiene en lugar de empezar otra vez. Desactivado: las pulsaciones se superponen.",

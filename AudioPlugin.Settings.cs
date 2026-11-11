@@ -11,6 +11,7 @@ public sealed partial class AudioPlugin
     {
         _aliasStore?.CleanupEmpty();
         _aliasStore?.Reload();
+        _barColors?.CleanupEmpty();
         // Collapse the per-device playback toggles back into a single selection.
         if (_audio.IsSupported)
             _playbackDevices?.Normalize(Endpoints(AudioEndpointKind.Render));
@@ -47,6 +48,15 @@ public sealed partial class AudioPlugin
             },
             new()
             {
+                Key = AudioBarColorStore.DefaultKey,
+                Label = "Bar color",
+                Kind = AudioBarColorStore.ColorKind,
+                Description = "Hex color such as #4CAF50. Used by every bar without a color of "
+                              + "its own, app dials included. Empty: green.",
+                DefaultValue = string.Empty
+            },
+            new()
+            {
                 Key = "__heading_outputs",
                 Label = "Output Devices",
                 Kind = PluginSettingKind.Heading,
@@ -66,6 +76,26 @@ public sealed partial class AudioPlugin
         });
         foreach (var ep in inputs)
             list.Add(AliasField(ep));
+
+        list.Add(new PluginSettingDescriptor
+        {
+            Key = "__heading_bar_colors",
+            Label = "Device Bar Colors",
+            Kind = PluginSettingKind.Heading,
+            Description = "Give a device's volume bar its own color, as a hex value such as "
+                          + "#2196F3. Empty: the bar color above.",
+            DefaultValue = string.Empty
+        });
+        foreach (var ep in outputs.Concat(inputs))
+        {
+            list.Add(new PluginSettingDescriptor
+            {
+                Key = AudioBarColorStore.KeyPrefix + ep.Id,
+                Label = _aliasStore.Resolve(ep),
+                Kind = AudioBarColorStore.ColorKind,
+                DefaultValue = string.Empty
+            });
+        }
 
         var presentIds = new HashSet<string>(
             outputs.Select(e => e.Id).Concat(inputs.Select(e => e.Id)),

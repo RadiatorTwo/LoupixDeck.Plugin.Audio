@@ -70,6 +70,8 @@
   "Saved aliases (not connected)": "Gespeicherte Aliase (nicht verbunden)",
   "Side-Strip Volume Bars": "Lautstärkebalken der Seitenleiste",
   "Horizontal segments": "Horizontale Segmente",
+  "Bar color": "Balkenfarbe",
+  "Device Bar Colors": "Balkenfarben je Gerät",
 
   "Set a short alias to replace the OS device name.": "Einen kurzen Alias setzen, der den Gerätenamen des Systems ersetzt.",
   "Clear the field to forget the alias.": "Das Feld leeren, um den Alias zu verwerfen.",
@@ -77,6 +79,8 @@
   "Switch off to fall back to the system default device.": "Ausschalten, um auf das Standardgerät des Systems zurückzufallen.",
   "How the volume bars are arranged on the side strip.": "Wie die Lautstärkebalken auf der Seitenleiste angeordnet sind.",
   "Off: side-by-side vertical bars. On: 3 stacked horizontal segments.": "Aus: nebeneinander stehende senkrechte Balken. An: 3 gestapelte waagerechte Segmente.",
+  "Hex color such as #4CAF50. Used by every bar without a color of its own, app dials included. Empty: green.": "Hex-Farbe wie #4CAF50. Gilt für jeden Balken ohne eigene Farbe, auch für App-Regler. Leer: Grün.",
+  "Give a device's volume bar its own color, as a hex value such as #2196F3. Empty: the bar color above.": "Dem Lautstärkebalken eines Geräts eine eigene Farbe geben, als Hex-Wert wie #2196F3. Leer: die Balkenfarbe oben.",
   "Folder holding the audio files. After saving they show up in the command menu under Audio → Play Sound.": "Ordner mit den Audiodateien. Nach dem Speichern erscheinen sie im Befehlsmenü unter Audio → Sound abspielen.",
   "Full path to a folder with .wav, .mp3, .flac, .m4a or .aiff files (.ogg on Linux only). Sub-folders become sub-menus.": "Vollständiger Pfad zu einem Ordner mit .wav-, .mp3-, .flac-, .m4a- oder .aiff-Dateien (.ogg nur unter Linux). Unterordner werden zu Untermenüs.",
   "Pressing the button again stops that sound instead of starting it a second time. Off: presses overlap.": "Ein erneuter Druck stoppt den Sound, statt ihn ein zweites Mal zu starten. Aus: die Sounds überlagern sich.",
