@@ -14,6 +14,7 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
     private List<ISideStripProvider> _stripProviders = [];
     private AudioVolumeStripProvider? _stripProvider;
     private AudioAliasStore? _aliasStore;
+    private AudioBarColorStore? _barColors;
     private SoundLibrary? _soundLibrary;
     private PlaybackDeviceStore? _playbackDevices;
     private AudioVisibilityStore? _visibility;
@@ -74,6 +75,7 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
         AudioButtonLayouts.Translate = host.Tr;
         _settings = host.Settings;
         _aliasStore = new AudioAliasStore(host.Settings);
+        _barColors = new AudioBarColorStore(host.Settings);
         _soundLibrary = new SoundLibrary(host.Settings);
         _playbackDevices = new PlaybackDeviceStore(host.Settings);
         _visibility = new AudioVisibilityStore(host.Settings);
@@ -115,7 +117,7 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
             ]);
         }
 
-        _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings, _aliasStore, host);
+        _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings, _aliasStore, _barColors, host);
         _stripProviders = [_stripProvider];
 
         _deviceChanges = _audio.SubscribeDeviceChanges(OnDeviceChanged);

@@ -10,7 +10,7 @@ namespace LoupixDeck.Plugin.Audio;
 /// separate configuration.
 /// </summary>
 internal sealed class AudioVolumeStripProvider(IAudioService audio, IPluginSettings settings, AudioAliasStore aliasStore,
-    IPluginHost host)
+    AudioBarColorStore colors, IPluginHost host)
     : ISideStripProvider, ISegmentStripProvider
 {
     /// <summary>Settings key: when true the strip renders as 3 stacked horizontal
@@ -25,7 +25,7 @@ internal sealed class AudioVolumeStripProvider(IAudioService audio, IPluginSetti
 
     public ISideStripSession CreateSession(SideStripContext context)
     {
-        var session = new AudioVolumeStripSession(audio, settings, aliasStore, host, context, Forget);
+        var session = new AudioVolumeStripSession(audio, settings, aliasStore, colors, host, context, Forget);
         lock (_sessions) _sessions.Add(session);
         return session;
     }
@@ -35,8 +35,8 @@ internal sealed class AudioVolumeStripProvider(IAudioService audio, IPluginSetti
         lock (_sessions) _sessions.Remove(session);
     }
 
-    /// <summary>Repaints all live strips — called after settings change (layout toggle or a
-    /// device alias rename). Names are resolved at render time, so the repaint picks them up.</summary>
+    /// <summary>Repaints all live strips — called after settings change (layout toggle, bar
+    /// color or a device alias rename). Names are resolved at render time, so the repaint picks them up.</summary>
     public void NotifyLayoutChanged()
     {
         AudioVolumeStripSession[] snapshot;
@@ -116,6 +116,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
     private readonly IAudioService _audio;
     private readonly IPluginSettings _settings;
     private readonly AudioAliasStore _aliasStore;
+    private readonly AudioBarColorStore _colors;
     private readonly IPluginHost _host;
     private readonly SideStripContext _context;
     private readonly Action<AudioVolumeStripSession> _onDisposed;
@@ -139,12 +140,13 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
     public void RaiseChanged() => StripChanged?.Invoke(this, EventArgs.Empty);
 
     public AudioVolumeStripSession(IAudioService audio, IPluginSettings settings,
-        AudioAliasStore aliasStore, IPluginHost host, SideStripContext context,
+        AudioAliasStore aliasStore, AudioBarColorStore colors, IPluginHost host, SideStripContext context,
         Action<AudioVolumeStripSession> onDisposed)
     {
         _audio = audio;
         _settings = settings;
         _aliasStore = aliasStore;
+        _colors = colors;
         _host = host;
         _context = context;
         _onDisposed = onDisposed;
@@ -318,15 +320,18 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
     /// </summary>
     private AudioStripRenderer.BarView View(Bar bar)
     {
+        // Read per frame, so a color saved in the settings shows on the next repaint.
+        PluginColor fill = _colors.Resolve(bar.DeviceId);
+
         if (bar.DeviceId != null)
         {
             return bar.Connected
-                ? new AudioStripRenderer.BarView(DisplayName(bar), true, bar.Level, bar.Muted)
-                : new AudioStripRenderer.BarView(DisplayName(bar), false, 0f, false);
+                ? new AudioStripRenderer.BarView(DisplayName(bar), true, bar.Level, bar.Muted, fill)
+                : new AudioStripRenderer.BarView(DisplayName(bar), false, 0f, false, fill);
         }
 
         if (bar.AppId == null)
-            return new AudioStripRenderer.BarView(DisplayName(bar), false, 0f, false);
+            return new AudioStripRenderer.BarView(DisplayName(bar), false, 0f, false, fill);
 
         string? appId = ResolveAppId(bar);
         float? level = null;
@@ -351,7 +356,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
             }
         }
 
-        return new AudioStripRenderer.BarView(DisplayName(bar, appId), level != null, level ?? 0f, muted);
+        return new AudioStripRenderer.BarView(DisplayName(bar, appId), level != null, level ?? 0f, muted, fill);
     }
 
     /// <summary>The app the bar means right now: the foreground sentinel names whichever app is in front.</summary>
@@ -634,11 +639,11 @@ internal static class AudioStripCommandParser
 /// font). The host serializes the call against its own Skia work.</summary>
 internal static class AudioStripRenderer
 {
-    public readonly record struct BarView(string Name, bool HasDevice, float Volume, bool Muted);
+    /// <param name="Fill">The color of the level fill while the bar is not muted.</param>
+    public readonly record struct BarView(string Name, bool HasDevice, float Volume, bool Muted, PluginColor Fill);
 
     private static readonly PluginColor Background = new(18, 18, 18);
     private static readonly PluginColor Track = new(48, 48, 48);
-    private static readonly PluginColor FillActive = new(0x4C, 0xAF, 0x50);  // green
     private static readonly PluginColor FillMuted = new(0x9E, 0x9E, 0x9E);   // gray
     private static readonly PluginColor TextColor = new(0xE0, 0xE0, 0xE0);
     private static readonly PluginColor MuteColor = new(0xE5, 0x73, 0x73);   // red — mute indicator
@@ -694,7 +699,7 @@ internal static class AudioStripRenderer
             var fillHeight = (int)Math.Round(trackHeight * bar.Volume);
             if (fillHeight > 0)
                 canvas.FillRoundedRectangle(left, trackBottom - fillHeight, colW, fillHeight, 4,
-                    bar.Muted ? FillMuted : FillActive);
+                    bar.Muted ? FillMuted : bar.Fill);
 
             // Label below the track (mute marker takes precedence).
             var label = bar.Muted ? mutedLabel : Fit(bar.Name, canvas, labelSize, colW);
@@ -766,7 +771,7 @@ internal static class AudioStripRenderer
         {
             var fillWidth = Math.Max(2, (int)Math.Round(contentWidth * bar.Volume));
             var fillRadius = Math.Min(radius, fillWidth / 2);
-            canvas.FillRoundedRectangle(left, barTop, fillWidth, barH, fillRadius, bar.Muted ? FillMuted : FillActive);
+            canvas.FillRoundedRectangle(left, barTop, fillWidth, barH, fillRadius, bar.Muted ? FillMuted : bar.Fill);
         }
 
         // Value / state underneath: a red mute symbol when muted (outlined so it reads on any
