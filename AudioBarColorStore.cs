@@ -13,12 +13,8 @@ internal sealed class AudioBarColorStore(IPluginSettings settings)
     internal const string DefaultKey = "strip.barColor";
     internal const string KeyPrefix = "color:";
 
-    /// <summary>
-    /// The color setting kind, added to the SDK after the version this plugin builds against.
-    /// A host that does not know it renders a text box, so the user types the hex value there.
-    /// Replace with <c>PluginSettingKind.Color</c> once the SDK reference includes it.
-    /// </summary>
-    internal const PluginSettingKind ColorKind = (PluginSettingKind)5;
+    /// <summary>The color setting kind, shown by the host as a color picker (SDK 1.37).</summary>
+    internal const PluginSettingKind ColorKind = PluginSettingKind.Color;
 
     internal static readonly PluginColor BuiltInFill = new(0x4C, 0xAF, 0x50);
 

@@ -20,10 +20,10 @@ Diese Ordner liegen lokal und enthalten alles, was zum Verständnis und zur Entw
 - **Assembly-/Ordnername:** `LoupixDeck.Plugin.Audio` (Konvention: `LoupixDeck.Plugin.<Name>`)
 - **Namespace:** `LoupixDeck.Plugin.Audio`
 - **Plugin-Klasse:** `AudioPlugin` erbt von `LoupixPlugin`
-- **Manifest:** `plugin.json` (id = `audio`, sdkVersion = `1.28`, entryAssembly = `LoupixDeck.Plugin.Audio.dll`)
+- **Manifest:** `plugin.json` (id = `audio`, sdkVersion = `1.37`, entryAssembly = `LoupixDeck.Plugin.Audio.dll`)
 - **Übersetzungen:** `strings.de.json` und `strings.es.json` neben `plugin.json`, per csproj ins Output kopiert (siehe unten).
 - **Target Framework:** `net9.0`
-- **SDK-Paket:** `LoupixDeck.PluginSdk` 1.28.0 von nuget.org, mit `<ExcludeAssets>runtime</ExcludeAssets>` — der Host stellt die SDK-DLL bereit, nie mit ausliefern.
+- **SDK-Paket:** `LoupixDeck.PluginSdk` 1.37.0 von nuget.org, mit `<ExcludeAssets>runtime</ExcludeAssets>` — der Host stellt die SDK-DLL bereit, nie mit ausliefern.
 - **NAudio:** das Meta-Paket `NAudio` bleibt, weil `AudioFileReader` in `NAudio.dll` steckt und
   `NAudio.WinMM` braucht (ACM für komprimierte WAVs). `NAudio.Asio` und `NAudio.Midi` referenziert
   nichts; sie sind per `ExcludeAssets="all"` aus dem Release genommen.
