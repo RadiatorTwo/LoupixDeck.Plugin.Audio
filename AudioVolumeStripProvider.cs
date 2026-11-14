@@ -17,6 +17,10 @@ internal sealed class AudioVolumeStripProvider(IAudioService audio, IPluginSetti
     /// segments instead of the default side-by-side vertical bars.</summary>
     internal const string HorizontalLayoutKey = "strip.horizontalLayout";
 
+    /// <summary>Settings key: when true the right strip's vertical bars run right to left, so
+    /// the bars on both strips go from the outer edge inward.</summary>
+    internal const string MirrorRightKey = "strip.mirrorRight";
+
     public string Id => "audio.volume-bars";
     public string Title => host.Tr("Audio Volume Bars");
 
@@ -310,9 +314,16 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
             return false;
 
         var horizontal = _settings.Get(AudioVolumeStripProvider.HorizontalLayoutKey, false);
-        AudioStripRenderer.Render(_bars.Select(View).ToList(), canvas, horizontal, _host.Tr("muted"));
+        List<AudioStripRenderer.BarView> views = _bars.Select(View).ToList();
+        if (!horizontal && IsMirrored()) views.Reverse();
+        AudioStripRenderer.Render(views, canvas, horizontal, _host.Tr("muted"));
         return true;
     }
+
+    /// <summary>Whether the side-by-side bars of this strip run right to left. Only the right strip
+    /// mirrors, so its first dial lands on the outer edge like the left strip's does.</summary>
+    private bool IsMirrored() =>
+        _context.Side == StripSide.Right && _settings.Get(AudioVolumeStripProvider.MirrorRightKey, false);
 
     /// <summary>
     /// What one bar shows. A device bar draws its endpoint's level. An app bar draws the level of the app's
@@ -507,7 +518,8 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
     /// <summary>Tapping a bar toggles mute on that bar's device. The bars run left-to-right
     /// in vertical mode and top-to-bottom in horizontal mode, so hit-test the matching axis.
     /// In segmented mode the bands are always stacked vertically (one per segment), so the
-    /// y-axis is used regardless of the whole-strip layout setting.</summary>
+    /// y-axis is used regardless of the whole-strip layout setting. A mirrored strip counts the
+    /// columns from the right.</summary>
     public void OnStripTapped(int x, int y)
     {
         if (_bars.Count == 0) return;
@@ -515,6 +527,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
         var index = stacked
             ? Math.Clamp((int)(y / (_height / (float)_bars.Count)), 0, _bars.Count - 1)
             : Math.Clamp((int)(x / (_width / (float)_bars.Count)), 0, _bars.Count - 1);
+        if (!stacked && IsMirrored()) index = _bars.Count - 1 - index;
         var bar = _bars[index];
         if (bar.FollowsDefault) FollowDefault(bar, fresh: true);
 

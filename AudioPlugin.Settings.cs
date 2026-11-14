@@ -48,6 +48,15 @@ public sealed partial class AudioPlugin
             },
             new()
             {
+                Key = AudioVolumeStripProvider.MirrorRightKey,
+                Label = "Mirror right strip",
+                Kind = PluginSettingKind.Toggle,
+                Description = "On: the right strip's bars run from the outer edge inward, so the top "
+                              + "dials on both sides drive the outermost bars. Vertical bars only.",
+                DefaultValue = false
+            },
+            new()
+            {
                 Key = AudioBarColorStore.DefaultKey,
                 Label = "Bar color",
                 Kind = AudioBarColorStore.ColorKind,
