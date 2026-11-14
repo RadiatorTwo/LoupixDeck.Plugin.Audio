@@ -79,6 +79,8 @@
   "Switch off to fall back to the system default device.": "Ausschalten, um auf das Standardgerät des Systems zurückzufallen.",
   "How the volume bars are arranged on the side strip.": "Wie die Lautstärkebalken auf der Seitenleiste angeordnet sind.",
   "Off: side-by-side vertical bars. On: 3 stacked horizontal segments.": "Aus: nebeneinander stehende senkrechte Balken. An: 3 gestapelte waagerechte Segmente.",
+  "Mirror right strip": "Rechte Leiste spiegeln",
+  "On: the right strip's bars run from the outer edge inward, so the top dials on both sides drive the outermost bars. Vertical bars only.": "An: Die Balken der rechten Leiste laufen vom äußeren Rand nach innen, sodass die oberen Regler beider Seiten die äußersten Balken steuern. Nur bei senkrechten Balken.",
   "Hex color such as #4CAF50. Used by every bar without a color of its own, app dials included. Empty: green.": "Hex-Farbe wie #4CAF50. Gilt für jeden Balken ohne eigene Farbe, auch für App-Regler. Leer: Grün.",
   "Give a device's volume bar its own color, as a hex value such as #2196F3. Empty: the bar color above.": "Dem Lautstärkebalken eines Geräts eine eigene Farbe geben, als Hex-Wert wie #2196F3. Leer: die Balkenfarbe oben.",
   "Folder holding the audio files. After saving they show up in the command menu under Audio → Play Sound.": "Ordner mit den Audiodateien. Nach dem Speichern erscheinen sie im Befehlsmenü unter Audio → Sound abspielen.",

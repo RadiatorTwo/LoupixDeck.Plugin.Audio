@@ -1,3 +1,4 @@
+using System.Globalization;
 using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Audio;
@@ -16,6 +17,10 @@ internal sealed class AudioVolumeStripProvider(IAudioService audio, IPluginSetti
     /// <summary>Settings key: when true the strip renders as 3 stacked horizontal
     /// segments instead of the default side-by-side vertical bars.</summary>
     internal const string HorizontalLayoutKey = "strip.horizontalLayout";
+
+    /// <summary>Settings key: when true the right strip's vertical bars run right to left, so
+    /// the bars on both strips go from the outer edge inward.</summary>
+    internal const string MirrorRightKey = "strip.mirrorRight";
 
     public string Id => "audio.volume-bars";
     public string Title => host.Tr("Audio Volume Bars");
@@ -310,9 +315,16 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
             return false;
 
         var horizontal = _settings.Get(AudioVolumeStripProvider.HorizontalLayoutKey, false);
-        AudioStripRenderer.Render(_bars.Select(View).ToList(), canvas, horizontal, _host.Tr("muted"));
+        List<AudioStripRenderer.BarView> views = _bars.Select(View).ToList();
+        if (!horizontal && IsMirrored()) views.Reverse();
+        AudioStripRenderer.Render(views, canvas, horizontal);
         return true;
     }
+
+    /// <summary>Whether the side-by-side bars of this strip run right to left. Only the right strip
+    /// mirrors, so its first dial lands on the outer edge like the left strip's does.</summary>
+    private bool IsMirrored() =>
+        _context.Side == StripSide.Right && _settings.Get(AudioVolumeStripProvider.MirrorRightKey, false);
 
     /// <summary>
     /// What one bar shows. A device bar draws its endpoint's level. An app bar draws the level of the app's
@@ -507,7 +519,8 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
     /// <summary>Tapping a bar toggles mute on that bar's device. The bars run left-to-right
     /// in vertical mode and top-to-bottom in horizontal mode, so hit-test the matching axis.
     /// In segmented mode the bands are always stacked vertically (one per segment), so the
-    /// y-axis is used regardless of the whole-strip layout setting.</summary>
+    /// y-axis is used regardless of the whole-strip layout setting. A mirrored strip counts the
+    /// columns from the right.</summary>
     public void OnStripTapped(int x, int y)
     {
         if (_bars.Count == 0) return;
@@ -515,6 +528,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
         var index = stacked
             ? Math.Clamp((int)(y / (_height / (float)_bars.Count)), 0, _bars.Count - 1)
             : Math.Clamp((int)(x / (_width / (float)_bars.Count)), 0, _bars.Count - 1);
+        if (!stacked && IsMirrored()) index = _bars.Count - 1 - index;
         var bar = _bars[index];
         if (bar.FollowsDefault) FollowDefault(bar, fresh: true);
 
@@ -652,15 +666,13 @@ internal static class AudioStripRenderer
     // content clear of every edge by this inset.
     private const int Edge = 4;
 
-    /// <param name="mutedLabel">The translated "muted" caption the vertical layout writes under a
-    /// muted bar; the horizontal layout draws a symbol instead.</param>
-    public static void Render(IReadOnlyList<BarView> bars, IRenderCanvas canvas, bool horizontal, string mutedLabel)
+    public static void Render(IReadOnlyList<BarView> bars, IRenderCanvas canvas, bool horizontal)
     {
         if (horizontal) RenderHorizontal(bars, canvas);
-        else RenderVertical(bars, canvas, mutedLabel);
+        else RenderVertical(bars, canvas);
     }
 
-    private static void RenderVertical(IReadOnlyList<BarView> bars, IRenderCanvas canvas, string mutedLabel)
+    private static void RenderVertical(IReadOnlyList<BarView> bars, IRenderCanvas canvas)
     {
         var width = canvas.Width;
         var height = canvas.Height;
@@ -701,11 +713,24 @@ internal static class AudioStripRenderer
                 canvas.FillRoundedRectangle(left, trackBottom - fillHeight, colW, fillHeight, 4,
                     bar.Muted ? FillMuted : bar.Fill);
 
-            // Label below the track (mute marker takes precedence).
-            var label = bar.Muted ? mutedLabel : Fit(bar.Name, canvas, labelSize, colW);
+            // Label below the track. A column holds one letter, so the name is cut to its first one;
+            // a muted bar shows the mute symbol instead, as the horizontal layout does. It may use
+            // the gaps beside the track, so it gets the whole column.
+            var labelLeft = (int)Math.Round(contentLeft + i * columnWidth);
+            var labelW = (int)Math.Round(columnWidth);
+            var labelTop = trackBottom + 2;
+            var labelH = height - labelTop;
+            if (bar.Muted)
+            {
+                const int iconSize = 12;
+                canvas.DrawSymbol("volume-mute", labelLeft + ((labelW - iconSize) / 2),
+                    labelTop + ((labelH - Edge - iconSize) / 2), iconSize, iconSize, MuteColor);
+                continue;
+            }
+
+            var label = FirstLetter(bar.Name);
             if (label.Length > 0)
-                canvas.DrawText(label, left, trackBottom + 2, colW, height - trackBottom - 2,
-                    TextColor, labelSize, centered: true);
+                DrawLine(canvas, label, labelLeft, labelTop, labelW, labelH, labelSize);
         }
     }
 
@@ -791,6 +816,24 @@ internal static class AudioStripRenderer
         }
     }
 
+    /// <summary>
+    /// Draws <paramref name="text"/> as one centered line. The host wraps text wider than its box
+    /// character by character and centers the whole block, so a label one pixel too wide would sit
+    /// half a line higher or lower than its neighbours. Widening the box around its center to the
+    /// text's width keeps every label on the same baseline.
+    /// </summary>
+    private static void DrawLine(IRenderCanvas canvas, string text, int x, int y, int width, int height, float fontSize)
+    {
+        var textWidth = (int)MathF.Ceiling(canvas.MeasureText(text, fontSize)) + 1;
+        if (textWidth > width)
+        {
+            x -= (textWidth - width) / 2;
+            width = textWidth;
+        }
+
+        canvas.DrawText(text, x, y, width, height, TextColor, fontSize, centered: true);
+    }
+
     /// <summary>Truncates <paramref name="text"/> with a trailing ellipsis so it fits within
     /// <paramref name="maxWidth"/> in the host font. Keeps the narrow strip readable.</summary>
     private static string Fit(string text, IRenderCanvas canvas, float fontSize, float maxWidth)
@@ -804,5 +847,13 @@ internal static class AudioStripRenderer
             trimmed = trimmed[..^1];
 
         return trimmed + ellipsis;
+    }
+
+    /// <summary>The first letter of <paramref name="text"/>, kept whole when it is more than one
+    /// UTF-16 unit (an emoji or a combined character).</summary>
+    private static string FirstLetter(string text)
+    {
+        var trimmed = text.Trim();
+        return trimmed.Length == 0 ? string.Empty : StringInfo.GetNextTextElement(trimmed);
     }
 }
