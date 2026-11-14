@@ -323,7 +323,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
     /// <summary>Whether the side-by-side bars of this strip run right to left. Only the right strip
     /// mirrors, so its first dial lands on the outer edge like the left strip's does.</summary>
     private bool IsMirrored() =>
-        _context.Side == StripSide.Right && _settings.Get(AudioVolumeStripProvider.MirrorRightKey, false);
+        _context.Side == StripSide.Right && _settings.Get(AudioVolumeStripProvider.MirrorRightKey, true);
 
     /// <summary>
     /// What one bar shows. A device bar draws its endpoint's level. An app bar draws the level of the app's
