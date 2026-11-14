@@ -1,3 +1,4 @@
+using System.Globalization;
 using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Audio;
@@ -714,11 +715,12 @@ internal static class AudioStripRenderer
                 canvas.FillRoundedRectangle(left, trackBottom - fillHeight, colW, fillHeight, 4,
                     bar.Muted ? FillMuted : bar.Fill);
 
-            // Label below the track (mute marker takes precedence). It may use the gaps beside the
-            // track, so it gets the whole column.
+            // Label below the track (mute marker takes precedence). A column holds one letter, so
+            // the name is cut to its first one. It may use the gaps beside the track, so it gets the
+            // whole column.
             var labelLeft = (int)Math.Round(contentLeft + i * columnWidth);
             var labelW = (int)Math.Round(columnWidth);
-            var label = bar.Muted ? mutedLabel : Fit(bar.Name, canvas, labelSize, labelW);
+            var label = bar.Muted ? mutedLabel : FirstLetter(bar.Name);
             if (label.Length > 0)
                 DrawLine(canvas, label, labelLeft, trackBottom + 2, labelW, height - trackBottom - 2, labelSize);
         }
@@ -825,8 +827,7 @@ internal static class AudioStripRenderer
     }
 
     /// <summary>Truncates <paramref name="text"/> with a trailing ellipsis so it fits within
-    /// <paramref name="maxWidth"/> in the host font. Keeps the narrow strip readable. When not even
-    /// one character and the ellipsis fit, the first character stands alone.</summary>
+    /// <paramref name="maxWidth"/> in the host font. Keeps the narrow strip readable.</summary>
     private static string Fit(string text, IRenderCanvas canvas, float fontSize, float maxWidth)
     {
         if (string.IsNullOrEmpty(text) || canvas.MeasureText(text, fontSize) <= maxWidth)
@@ -837,6 +838,14 @@ internal static class AudioStripRenderer
         while (trimmed.Length > 1 && canvas.MeasureText(trimmed + ellipsis, fontSize) > maxWidth)
             trimmed = trimmed[..^1];
 
-        return canvas.MeasureText(trimmed + ellipsis, fontSize) <= maxWidth ? trimmed + ellipsis : trimmed;
+        return trimmed + ellipsis;
+    }
+
+    /// <summary>The first letter of <paramref name="text"/>, kept whole when it is more than one
+    /// UTF-16 unit (an emoji or a combined character).</summary>
+    private static string FirstLetter(string text)
+    {
+        var trimmed = text.Trim();
+        return trimmed.Length == 0 ? string.Empty : StringInfo.GetNextTextElement(trimmed);
     }
 }
