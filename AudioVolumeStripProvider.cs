@@ -701,11 +701,13 @@ internal static class AudioStripRenderer
                 canvas.FillRoundedRectangle(left, trackBottom - fillHeight, colW, fillHeight, 4,
                     bar.Muted ? FillMuted : bar.Fill);
 
-            // Label below the track (mute marker takes precedence).
-            var label = bar.Muted ? mutedLabel : Fit(bar.Name, canvas, labelSize, colW);
+            // Label below the track (mute marker takes precedence). It may use the gaps beside the
+            // track, so it gets the whole column.
+            var labelLeft = (int)Math.Round(contentLeft + i * columnWidth);
+            var labelW = (int)Math.Round(columnWidth);
+            var label = bar.Muted ? mutedLabel : Fit(bar.Name, canvas, labelSize, labelW);
             if (label.Length > 0)
-                canvas.DrawText(label, left, trackBottom + 2, colW, height - trackBottom - 2,
-                    TextColor, labelSize, centered: true);
+                DrawLine(canvas, label, labelLeft, trackBottom + 2, labelW, height - trackBottom - 2, labelSize);
         }
     }
 
@@ -791,8 +793,27 @@ internal static class AudioStripRenderer
         }
     }
 
+    /// <summary>
+    /// Draws <paramref name="text"/> as one centered line. The host wraps text wider than its box
+    /// character by character and centers the whole block, so a label one pixel too wide would sit
+    /// half a line higher or lower than its neighbours. Widening the box around its center to the
+    /// text's width keeps every label on the same baseline.
+    /// </summary>
+    private static void DrawLine(IRenderCanvas canvas, string text, int x, int y, int width, int height, float fontSize)
+    {
+        var textWidth = (int)MathF.Ceiling(canvas.MeasureText(text, fontSize)) + 1;
+        if (textWidth > width)
+        {
+            x -= (textWidth - width) / 2;
+            width = textWidth;
+        }
+
+        canvas.DrawText(text, x, y, width, height, TextColor, fontSize, centered: true);
+    }
+
     /// <summary>Truncates <paramref name="text"/> with a trailing ellipsis so it fits within
-    /// <paramref name="maxWidth"/> in the host font. Keeps the narrow strip readable.</summary>
+    /// <paramref name="maxWidth"/> in the host font. Keeps the narrow strip readable. When not even
+    /// one character and the ellipsis fit, the first character stands alone.</summary>
     private static string Fit(string text, IRenderCanvas canvas, float fontSize, float maxWidth)
     {
         if (string.IsNullOrEmpty(text) || canvas.MeasureText(text, fontSize) <= maxWidth)
@@ -803,6 +824,6 @@ internal static class AudioStripRenderer
         while (trimmed.Length > 1 && canvas.MeasureText(trimmed + ellipsis, fontSize) > maxWidth)
             trimmed = trimmed[..^1];
 
-        return trimmed + ellipsis;
+        return canvas.MeasureText(trimmed + ellipsis, fontSize) <= maxWidth ? trimmed + ellipsis : trimmed;
     }
 }
