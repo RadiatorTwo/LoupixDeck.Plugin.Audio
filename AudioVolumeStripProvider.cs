@@ -317,7 +317,7 @@ internal sealed class AudioVolumeStripSession : ISideStripSession, ISegmentStrip
         var horizontal = _settings.Get(AudioVolumeStripProvider.HorizontalLayoutKey, false);
         List<AudioStripRenderer.BarView> views = _bars.Select(View).ToList();
         if (!horizontal && IsMirrored()) views.Reverse();
-        AudioStripRenderer.Render(views, canvas, horizontal, _host.Tr("muted"));
+        AudioStripRenderer.Render(views, canvas, horizontal);
         return true;
     }
 
@@ -666,15 +666,13 @@ internal static class AudioStripRenderer
     // content clear of every edge by this inset.
     private const int Edge = 4;
 
-    /// <param name="mutedLabel">The translated "muted" caption the vertical layout writes under a
-    /// muted bar; the horizontal layout draws a symbol instead.</param>
-    public static void Render(IReadOnlyList<BarView> bars, IRenderCanvas canvas, bool horizontal, string mutedLabel)
+    public static void Render(IReadOnlyList<BarView> bars, IRenderCanvas canvas, bool horizontal)
     {
         if (horizontal) RenderHorizontal(bars, canvas);
-        else RenderVertical(bars, canvas, mutedLabel);
+        else RenderVertical(bars, canvas);
     }
 
-    private static void RenderVertical(IReadOnlyList<BarView> bars, IRenderCanvas canvas, string mutedLabel)
+    private static void RenderVertical(IReadOnlyList<BarView> bars, IRenderCanvas canvas)
     {
         var width = canvas.Width;
         var height = canvas.Height;
@@ -715,14 +713,24 @@ internal static class AudioStripRenderer
                 canvas.FillRoundedRectangle(left, trackBottom - fillHeight, colW, fillHeight, 4,
                     bar.Muted ? FillMuted : bar.Fill);
 
-            // Label below the track (mute marker takes precedence). A column holds one letter, so
-            // the name is cut to its first one. It may use the gaps beside the track, so it gets the
-            // whole column.
+            // Label below the track. A column holds one letter, so the name is cut to its first one;
+            // a muted bar shows the mute symbol instead, as the horizontal layout does. It may use
+            // the gaps beside the track, so it gets the whole column.
             var labelLeft = (int)Math.Round(contentLeft + i * columnWidth);
             var labelW = (int)Math.Round(columnWidth);
-            var label = bar.Muted ? mutedLabel : FirstLetter(bar.Name);
+            var labelTop = trackBottom + 2;
+            var labelH = height - labelTop;
+            if (bar.Muted)
+            {
+                const int iconSize = 12;
+                canvas.DrawSymbol("volume-mute", labelLeft + ((labelW - iconSize) / 2),
+                    labelTop + ((labelH - Edge - iconSize) / 2), iconSize, iconSize, MuteColor);
+                continue;
+            }
+
+            var label = FirstLetter(bar.Name);
             if (label.Length > 0)
-                DrawLine(canvas, label, labelLeft, trackBottom + 2, labelW, height - trackBottom - 2, labelSize);
+                DrawLine(canvas, label, labelLeft, labelTop, labelW, labelH, labelSize);
         }
     }
 
