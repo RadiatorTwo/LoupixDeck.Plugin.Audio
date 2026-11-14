@@ -53,7 +53,7 @@ public sealed partial class AudioPlugin
                 Kind = PluginSettingKind.Toggle,
                 Description = "On: the right strip's bars run from the outer edge inward, so the top "
                               + "dials on both sides drive the outermost bars. Vertical bars only.",
-                DefaultValue = true
+                DefaultValue = false
             },
             new()
             {
