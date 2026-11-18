@@ -52,11 +52,18 @@ alias. A device in the list that is not connected is skipped.
 device, assigned from the command menu (Audio → Output/Input Devices). The
 volume step is editable per assignment.
 
-On a touch key `Audio.MuteToggle` shows its state live when the `showState`
-parameter is on: a speaker or microphone in white with
-the level below it, crossed out in red with "Muted" while muted. A newly
-assigned toggle has it on. The key is drawn on a transparent background, so the
-wallpaper shows through. A toggle assigned before the parameter existed keeps
+On a touch key the `showState` parameter of `Audio.MuteToggle` picks the look:
+
+- `Live` (the default for a new assignment): a speaker or microphone in white
+  with the level below it, crossed out in red with "Muted" while muted. The key
+  is drawn on a transparent background, so the wallpaper shows through.
+- `Static`: the fixed mute icon and caption.
+- `Layers`: the plugin draws nothing, so the key shows only its own layers. A
+  text layer set to the value shows the level or "Muted", an indicator layer
+  follows the volume.
+
+A toggle saved while the parameter was a checkbox keeps its look: on reads as
+`Live`, off as `Static`. A toggle assigned before the parameter existed keeps
 its static icon; assign it again to get the live look.
 
 Dial values on the side strips (also in tap zones) and the mute keys follow the

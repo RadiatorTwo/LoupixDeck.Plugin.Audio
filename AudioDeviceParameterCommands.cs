@@ -279,7 +279,7 @@ internal sealed class AudioVolumeDownCommand(IAudioService audio) : IPluginComma
     });
 }
 
-internal sealed class AudioMuteToggleCommand(IAudioService audio) : IDisplayImageCommand
+internal sealed class AudioMuteToggleCommand(IAudioService audio) : IDisplayImageCommand, IValueDisplayCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -312,7 +312,10 @@ internal sealed class AudioMuteToggleCommand(IAudioService audio) : IDisplayImag
     public bool RenderImage(CommandContext ctx, IRenderCanvas canvas)
     {
         if (AudioMuteStateKey.IsLegacy(ctx)) return false;
-        if (!AudioMuteStateKey.Enabled(ctx)) return AudioMuteStateKey.DrawStatic(canvas, ctx.Host.Tr("Mute"));
+
+        MuteKeyStyle style = AudioMuteStateKey.StyleOf(ctx);
+        if (style == MuteKeyStyle.Layers) return false;
+        if (style == MuteKeyStyle.Static) return AudioMuteStateKey.DrawStatic(canvas, ctx.Host.Tr("Mute"));
 
         try
         {
@@ -327,6 +330,28 @@ internal sealed class AudioMuteToggleCommand(IAudioService audio) : IDisplayImag
         {
             // Runs on the host's render path: an endpoint that vanished costs this frame, not the deck.
             return false;
+        }
+    }
+
+    /// <summary>
+    /// The device's level for the key's own layers: an indicator follows the volume, a text layer set
+    /// to the value shows the level or "Muted", whichever look the key has.
+    /// </summary>
+    public AdjustmentValue? GetValue(CommandContext ctx)
+    {
+        try
+        {
+            string? id = AudioDeviceParameter.ResolveDeviceId(ctx, audio);
+            if (id == null) return null;
+
+            float volume = audio.GetVolume(id);
+            return new AdjustmentValue(volume,
+                audio.GetMute(id) ? ctx.Host.Tr("Muted") : AudioDeviceParameter.FormatVolume(volume));
+        }
+        catch
+        {
+            // Polled on the host's timer: an endpoint that vanished costs this value, not the deck.
+            return null;
         }
     }
 }
