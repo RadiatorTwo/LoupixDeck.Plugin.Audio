@@ -22,6 +22,7 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
     private IPluginLogger? _logger;
     private IPluginHost? _host;
     private IDisposable? _deviceChanges;
+    private AudioLevelWatcher? _levelWatcher;
     private readonly AppIdentityCache _appIdentity = new();
 
     /// <summary>
@@ -120,7 +121,28 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
         _stripProvider = new AudioVolumeStripProvider(_audio, host.Settings, _aliasStore, _barColors, host);
         _stripProviders = [_stripProvider];
 
+        _levelWatcher = new AudioLevelWatcher(_audio, RefreshLevelButtons);
         _deviceChanges = _audio.SubscribeDeviceChanges(OnDeviceChanged);
+        // Off the loading thread: subscribing opens every endpoint, which the backend may take a moment for.
+        _ = Task.Run(_levelWatcher.Resubscribe);
+    }
+
+    /// <summary>Commands whose dials or keys show a device's volume or mute state.</summary>
+    private static readonly string[] LevelCommands = ["Audio.Volume", "Audio.MuteToggle", "Audio.VolumeTile"];
+
+    /// <summary>
+    /// A device's volume or mute changed, from the deck or from anywhere else. Repaints what shows
+    /// it now: the host draws a dial value or a value layer only when asked.
+    /// </summary>
+    private void RefreshLevelButtons()
+    {
+        if (_host == null) return;
+
+        foreach (string command in LevelCommands)
+        {
+            try { _host.RequestButtonRefresh(command); }
+            catch (Exception ex) { _logger?.Warn($"Audio: could not refresh {command}: {ex.Message}"); }
+        }
     }
 
     /// <summary>Commands whose buttons or dials show something that depends on the default device.</summary>
@@ -135,6 +157,7 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
     {
         AudioDeviceParameter.InvalidateDefaultEndpoint();
         AudioCurrentOutputCommand.InvalidateLabel();
+        _levelWatcher?.Resubscribe();
         RefreshDeviceButtons();
     }
 
@@ -159,6 +182,8 @@ public sealed partial class AudioPlugin : LoupixPlugin, IPluginSettingsPage, IMe
         // Before the backend goes away, so no change is delivered to a plugin that is shutting down.
         _deviceChanges?.Dispose();
         _deviceChanges = null;
+        _levelWatcher?.Dispose();
+        _levelWatcher = null;
         // The Windows backend holds a cached session device that COM only releases on demand;
         // the Linux backend runs a pactl event monitor process.
         if (_audio is IDisposable disposable) disposable.Dispose();

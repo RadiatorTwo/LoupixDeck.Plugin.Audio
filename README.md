@@ -59,6 +59,10 @@ assigned toggle has it on. The key is drawn on a transparent background, so the
 wallpaper shows through. A toggle assigned before the parameter existed keeps
 its static icon; assign it again to get the live look.
 
+Dial values on the side strips (also in tap zones) and the mute keys follow the
+system: a mute or volume change from a touch key, the system tray or another
+application shows at once, not only after the next dial turn.
+
 `Audio.Mute` / `Audio.Unmute` / `Audio.SetMute` — set a device's mute state
 instead of toggling it, so running the command twice does the same thing as
 running it once. That is what a macro or multi-action needs. `Audio.SetMute`
