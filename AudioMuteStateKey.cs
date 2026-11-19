@@ -3,9 +3,11 @@ using LoupixDeck.PluginSdk;
 namespace LoupixDeck.Plugin.Audio;
 
 /// <summary>
-/// How a mute toggle draws its touch key. With <c>showState</c> on: a speaker (or microphone) with the
-/// level below it while live, a crossed-out symbol in red with "Muted" below it while muted. With it
-/// off: the static mute icon and caption the command always had.
+/// How a mute toggle draws its touch key, chosen by <c>showState</c> (<see cref="MuteKeyStyle"/>).
+/// <see cref="MuteKeyStyle.Live"/>: a speaker (or microphone) with the level below it while live, a
+/// crossed-out symbol in red with "Muted" below it while muted. <see cref="MuteKeyStyle.Static"/>: the
+/// static mute icon and caption the command always had. <see cref="MuteKeyStyle.Layers"/>: nothing,
+/// so the user's own layers style the key and show the state through the command's value.
 /// <para>
 /// The toggles bring no layers of their own any more (<see cref="Layout"/>), so the key is drawn here on
 /// a transparent background and the wallpaper shows through. A binding saved before the parameter
@@ -18,9 +20,13 @@ internal static class AudioMuteStateKey
 {
     public const string ShowStateName = "showState";
 
-    /// <summary>On for every new assignment: the host pre-fills it when the command is inserted.</summary>
+    /// <summary>
+    /// <see cref="MuteKeyStyle.Live"/> for every new assignment: the host pre-fills it when the command
+    /// is inserted. The parameter was a checkbox before <see cref="MuteKeyStyle.Layers"/> existed, so a
+    /// saved <c>True</c> or <c>False</c> is still read (<see cref="StyleOf"/>).
+    /// </summary>
     public static CommandParameter ShowStateParameter { get; } =
-        new(ShowStateName, typeof(bool)) { DefaultValue = "True" };
+        new(ShowStateName, typeof(MuteKeyStyle)) { DefaultValue = nameof(MuteKeyStyle.Live) };
 
     /// <summary>The key is drawn entirely by <see cref="Draw"/>, so the host adds no layers.</summary>
     public static ButtonLayoutDescriptor Layout { get; } = new() { Mode = ButtonLayoutMode.None };
@@ -28,9 +34,21 @@ internal static class AudioMuteStateKey
     /// <summary>A binding from before <c>showState</c>: its button has its own layers and is not drawn over.</summary>
     public static bool IsLegacy(CommandContext ctx) => ctx.Parameters is not { Length: > 1 };
 
-    /// <summary>Whether the binding asked for the live look (parameter index 1).</summary>
-    public static bool Enabled(CommandContext ctx) =>
-        ctx.Parameters is { Length: > 1 } p && bool.TryParse(p[1], out bool on) && on;
+    /// <summary>
+    /// The look the binding asked for (parameter index 1). <c>True</c> and <c>False</c> are the values
+    /// of the former checkbox and mean <see cref="MuteKeyStyle.Live"/> and <see cref="MuteKeyStyle.Static"/>;
+    /// anything unreadable keeps the static look, as an unreadable checkbox did.
+    /// </summary>
+    public static MuteKeyStyle StyleOf(CommandContext ctx)
+    {
+        if (ctx.Parameters is not { Length: > 1 } p) return MuteKeyStyle.Static;
+
+        string value = p[1].Trim();
+        if (bool.TryParse(value, out bool on)) return on ? MuteKeyStyle.Live : MuteKeyStyle.Static;
+        return Enum.TryParse(value, ignoreCase: true, out MuteKeyStyle style) && Enum.IsDefined(style)
+            ? style
+            : MuteKeyStyle.Static;
+    }
 
     /// <summary>The look the toggle had before the live state existed: mute icon and caption in white.</summary>
     public static bool DrawStatic(IRenderCanvas canvas, string caption) =>
@@ -84,4 +102,20 @@ internal static class AudioMuteStateKey
         string.Equals(boundId, AudioDeviceParameter.DefaultInputDeviceId, StringComparison.Ordinal) ||
         resolvedId.StartsWith("{0.0.1.", StringComparison.Ordinal) ||
         resolvedId.StartsWith("source:", StringComparison.Ordinal);
+}
+
+/// <summary>How a mute toggle draws its touch key.</summary>
+public enum MuteKeyStyle
+{
+    /// <summary>The live state: the symbol and the level, or a red crossed-out symbol and "Muted".</summary>
+    Live,
+
+    /// <summary>The fixed mute icon and caption, whatever the state.</summary>
+    Static,
+
+    /// <summary>
+    /// Nothing drawn by the plugin: the key shows only its own layers, which can show the state
+    /// through a text layer set to the value and an indicator layer.
+    /// </summary>
+    Layers
 }
