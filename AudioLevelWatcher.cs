@@ -11,12 +11,19 @@ namespace LoupixDeck.Plugin.Audio;
 /// </para>
 /// The subscriptions are rebuilt when the device set changes, since an endpoint that comes back
 /// never fires on a subscription made before it went away.
+/// <para>
+/// Changes are coalesced: a dial turn raises one notification per detent, and every report
+/// repaints all level commands, so a burst within <see cref="SettleDelay"/> becomes one report.
+/// </para>
 /// </summary>
 internal sealed class AudioLevelWatcher(IAudioService audio, Action onChange) : IDisposable
 {
+    private static readonly TimeSpan SettleDelay = TimeSpan.FromMilliseconds(50);
+
     private readonly Lock _lock = new();
     private List<IDisposable> _subscriptions = [];
     private bool _disposed;
+    private bool _reportPending;
 
     /// <summary>Subscribes to every endpoint the backend lists now, dropping the previous set.</summary>
     public void Resubscribe()
@@ -39,7 +46,7 @@ internal sealed class AudioLevelWatcher(IAudioService audio, Action onChange) : 
         List<IDisposable> fresh = [];
         foreach (string id in ids)
         {
-            try { fresh.Add(audio.SubscribeVolumeChanges(id, (_, _) => onChange())); }
+            try { fresh.Add(audio.SubscribeVolumeChanges(id, (_, _) => ScheduleReport())); }
             catch { /* an endpoint without notifications is simply not watched */ }
         }
 
@@ -58,6 +65,30 @@ internal sealed class AudioLevelWatcher(IAudioService audio, Action onChange) : 
         }
 
         DisposeAll(old);
+    }
+
+    /// <summary>Notes a change. Returns at once; the report runs on a worker after the burst settles.</summary>
+    private void ScheduleReport()
+    {
+        lock (_lock)
+        {
+            if (_disposed || _reportPending) return;
+            _reportPending = true;
+        }
+
+        _ = Task.Delay(SettleDelay).ContinueWith(_ => Report(), TaskScheduler.Default);
+    }
+
+    private void Report()
+    {
+        lock (_lock)
+        {
+            _reportPending = false;
+            if (_disposed) return;
+        }
+
+        try { onChange(); }
+        catch { /* a failing refresh must not stop later reports */ }
     }
 
     public void Dispose()
